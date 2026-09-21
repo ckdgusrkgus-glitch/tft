@@ -1,5 +1,7 @@
-package com.leechanghyun.autobattler.core.economy
+package com.leechanghyun.autobattler.core.planning
 
+import com.leechanghyun.autobattler.core.economy.ShopRoller
+import com.leechanghyun.autobattler.core.economy.UnitPool
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
 import com.leechanghyun.autobattler.core.model.PlayerState
 import org.junit.Assert.assertEquals
@@ -15,9 +17,9 @@ import kotlin.random.Random
  */
 class ShopSessionTest {
 
-    private fun session(gold: Int = 20, level: Int = 5, seed: Int = 1): ShopSession {
+    private fun session(gold: Int = 20, level: Int = 5, seed: Int = 1): PlanningSession {
         val pool = UnitPool()
-        return ShopSession(
+        return PlanningSession(
             pool = pool,
             roller = ShopRoller(pool, Random(seed)),
             initialPlayer = PlayerState(
@@ -30,7 +32,7 @@ class ShopSessionTest {
         )
     }
 
-    private fun ShopSession.firstBuyableIndex(): Int =
+    private fun PlanningSession.firstBuyableIndex(): Int =
         offer.slots.indexOfFirst { it.unit != null && !it.purchased }
 
     // --- 완료 기준 ---
@@ -92,7 +94,7 @@ class ShopSessionTest {
         val goldBefore = session.player.gold
         val result = session.buy(index)
 
-        assertEquals(ShopResult.Failure(ShopError.NOT_ENOUGH_GOLD), result)
+        assertEquals(PlanningResult.Failure(PlanningError.NOT_ENOUGH_GOLD), result)
         assertEquals(goldBefore, session.player.gold)
         assertEquals(0, session.player.bench.size)
     }
@@ -110,7 +112,7 @@ class ShopSessionTest {
             session.reroll()
             session.firstBuyableIndex()
         }
-        assertEquals(ShopResult.Failure(ShopError.BENCH_FULL), session.buy(index))
+        assertEquals(PlanningResult.Failure(PlanningError.BENCH_FULL), session.buy(index))
         assertEquals(PlayerState.BENCH_SIZE, session.player.bench.size)
     }
 
@@ -121,7 +123,7 @@ class ShopSessionTest {
         val index = session.firstBuyableIndex()
 
         assertTrue(session.buy(index).isSuccess)
-        assertEquals(ShopResult.Failure(ShopError.SLOT_UNAVAILABLE), session.buy(index))
+        assertEquals(PlanningResult.Failure(PlanningError.SLOT_UNAVAILABLE), session.buy(index))
         assertEquals(1, session.player.bench.size)
     }
 
@@ -129,8 +131,8 @@ class ShopSessionTest {
     fun `없는 칸을 사면 실패한다`() {
         val session = session()
         session.nextRound()
-        assertEquals(ShopResult.Failure(ShopError.SLOT_UNAVAILABLE), session.buy(99))
-        assertEquals(ShopResult.Failure(ShopError.SLOT_UNAVAILABLE), session.buy(-1))
+        assertEquals(PlanningResult.Failure(PlanningError.SLOT_UNAVAILABLE), session.buy(99))
+        assertEquals(PlanningResult.Failure(PlanningError.SLOT_UNAVAILABLE), session.buy(-1))
     }
 
     // --- 풀 정합성 ---
@@ -138,7 +140,7 @@ class ShopSessionTest {
     @Test
     fun `구매는 풀 재고를 건드리지 않는다`() {
         val pool = UnitPool()
-        val session = ShopSession(
+        val session = PlanningSession(
             pool,
             ShopRoller(pool, Random(9)),
             PlayerState("p1", "나", isBot = false, gold = 50, level = 6),
@@ -161,7 +163,7 @@ class ShopSessionTest {
     @Test
     fun `카드 총량은 어떤 조작에도 변하지 않는다`() {
         val pool = UnitPool()
-        val session = ShopSession(
+        val session = PlanningSession(
             pool,
             ShopRoller(pool, Random(9)),
             PlayerState("p1", "나", isBot = false, gold = 200, level = 6),
@@ -193,7 +195,7 @@ class ShopSessionTest {
     @Test
     fun `판매하면 골드를 돌려받고 카드가 풀로 돌아간다`() {
         val pool = UnitPool()
-        val session = ShopSession(
+        val session = PlanningSession(
             pool,
             ShopRoller(pool, Random(11)),
             PlayerState("p1", "나", isBot = false, gold = 30, level = 5),
@@ -220,7 +222,7 @@ class ShopSessionTest {
     fun `없는 유닛을 팔면 실패한다`() {
         val session = session()
         session.nextRound()
-        assertEquals(ShopResult.Failure(ShopError.UNIT_NOT_FOUND), session.sell("없는id"))
+        assertEquals(PlanningResult.Failure(PlanningError.UNIT_NOT_FOUND), session.sell("없는id"))
     }
 
     // --- 리롤과 경험치 ---
@@ -243,12 +245,12 @@ class ShopSessionTest {
     @Test
     fun `골드가 2 미만이면 리롤할 수 없다`() {
         val pool = UnitPool()
-        val session = ShopSession(
+        val session = PlanningSession(
             pool,
             ShopRoller(pool, Random(1)),
             PlayerState("p1", "나", isBot = false, gold = 1, level = 3),
         )
-        assertEquals(ShopResult.Failure(ShopError.NOT_ENOUGH_GOLD), session.reroll())
+        assertEquals(PlanningResult.Failure(PlanningError.NOT_ENOUGH_GOLD), session.reroll())
         assertEquals(1, session.player.gold)
     }
 
@@ -274,7 +276,7 @@ class ShopSessionTest {
     @Test
     fun `최대 레벨에서는 경험치를 살 수 없다`() {
         val session = session(gold = 100, level = PlayerState.MAX_LEVEL)
-        assertEquals(ShopResult.Failure(ShopError.MAX_LEVEL), session.buyExp())
+        assertEquals(PlanningResult.Failure(PlanningError.MAX_LEVEL), session.buyExp())
         assertEquals(100, session.player.gold)
     }
 

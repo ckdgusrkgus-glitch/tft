@@ -2,13 +2,15 @@ package com.leechanghyun.autobattler.ui.shop
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.leechanghyun.autobattler.core.board.DropTarget
 import com.leechanghyun.autobattler.core.economy.Economy
-import com.leechanghyun.autobattler.core.economy.ShopError
-import com.leechanghyun.autobattler.core.economy.ShopResult
 import com.leechanghyun.autobattler.core.economy.ShopRoller
-import com.leechanghyun.autobattler.core.economy.ShopSession
 import com.leechanghyun.autobattler.core.economy.UnitPool
+import com.leechanghyun.autobattler.core.planning.PlanningError
+import com.leechanghyun.autobattler.core.planning.PlanningResult
+import com.leechanghyun.autobattler.core.planning.PlanningSession
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.core.model.HexCoord
 import com.leechanghyun.autobattler.core.model.PlayerState
 import com.leechanghyun.autobattler.data.repository.GameDataRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +33,16 @@ data class ShopSlotUi(
     val purchased: Boolean,
     /** 지금 살 수 있는지. 골드 부족, 벤치 만석, 이미 구매면 false 다. */
     val buyable: Boolean,
+)
+
+/** 보드에 올라간 유닛의 표시용 데이터. */
+data class PlacedUnitUi(
+    val instanceId: String,
+    val coord: HexCoord,
+    val name: String,
+    val cost: Int,
+    val starLevel: Int,
+    val sellPrice: Int,
 )
 
 /** 벤치 1칸의 표시용 데이터. */
@@ -62,18 +74,43 @@ data class ShopUiState(
     val slots: List<ShopSlotUi> = emptyList(),
     val bench: List<BenchUnitUi> = emptyList(),
     val benchCapacity: Int = PlayerState.BENCH_SIZE,
+    val board: List<PlacedUnitUi> = emptyList(),
+    val boardCapacity: Int = 1,
+    /** 탭으로 고른 유닛. 판매 버튼이 이 유닛을 대상으로 한다. */
+    val selectedId: String? = null,
     val poolRemaining: Int = 0,
     val message: String? = null,
 ) {
     val canReroll: Boolean get() = gold >= EconomyRules.REROLL_COST
     val canBuyExp: Boolean get() = gold >= EconomyRules.BUY_EXP_COST && level < PlayerState.MAX_LEVEL
     val benchIsFull: Boolean get() = bench.size >= benchCapacity
+
+    /** 선택된 유닛. 벤치와 보드 어느 쪽에 있어도 찾는다. */
+    val selectedUnit: SelectedUnitUi?
+        get() {
+            val id = selectedId ?: return null
+            bench.firstOrNull { it.instanceId == id }?.let {
+                return SelectedUnitUi(id, it.name, it.sellPrice, onBoard = false)
+            }
+            board.firstOrNull { it.instanceId == id }?.let { placed ->
+                return SelectedUnitUi(id, placed.name, placed.sellPrice, onBoard = true)
+            }
+            return null
+        }
 }
+
+/** 선택된 유닛의 표시용 요약. */
+data class SelectedUnitUi(
+    val instanceId: String,
+    val name: String,
+    val sellPrice: Int,
+    val onBoard: Boolean,
+)
 
 /**
  * 로드맵 2단계 화면. 상점에서 유닛을 사 벤치에 올리고, 팔고, 리롤하고, 경험치를 산다.
  *
- * 게임 규칙은 전부 [ShopSession] 에 있고 이 클래스는 그 결과를 화면용 데이터로 옮기기만 한다.
+ * 게임 규칙은 전부 [PlanningSession] 에 있고 이 클래스는 그 결과를 화면용 데이터로 옮기기만 한다.
  * 규칙이 ViewModel 로 새어 들어오면 안드로이드 없이 테스트할 수 없게 되므로 경계를 지킨다.
  */
 @HiltViewModel
@@ -84,7 +121,7 @@ class ShopViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ShopUiState())
     val uiState: StateFlow<ShopUiState> = _uiState.asStateFlow()
 
-    private lateinit var session: ShopSession
+    private lateinit var session: PlanningSession
     private lateinit var pool: UnitPool
     private var skillNamesById: Map<String, String> = emptyMap()
 
@@ -95,7 +132,7 @@ class ShopViewModel @Inject constructor(
             skillNamesById = repository.skills().associate { it.id to it.name }
 
             pool = UnitPool(units = units)
-            session = ShopSession(
+            session = PlanningSession(
                 pool = pool,
                 roller = ShopRoller(pool),
                 initialPlayer = PlayerState(
@@ -114,6 +151,18 @@ class ShopViewModel @Inject constructor(
 
     fun sell(instanceId: String) = runAction { session.sell(instanceId) }
 
+    /**
+     * 드래그를 놓았을 때 부르는 함수. 놓은 곳이 보드면 배치, 벤치면 회수다.
+     *
+     * 어디에 놓였는지 판단하는 계산은 [com.leechanghyun.autobattler.core.board.PlayfieldLayout] 이 한다.
+     */
+    fun onDrop(instanceId: String, target: DropTarget) = runAction {
+        when (target) {
+            is DropTarget.Board -> session.moveToBoard(instanceId, target.coord)
+            DropTarget.Bench -> session.returnToBench(instanceId)
+        }
+    }
+
     fun reroll() = runAction { session.reroll() }
 
     fun buyExp() = runAction { session.buyExp() }
@@ -124,11 +173,21 @@ class ShopViewModel @Inject constructor(
         publish()
     }
 
+    /** 탭으로 유닛을 고르거나 선택을 해제한다. */
+    fun select(instanceId: String?) = _uiState.update { it.copy(selectedId = instanceId) }
+
+    /** 선택된 유닛을 판다. */
+    fun sellSelected() {
+        val id = _uiState.value.selectedId ?: return
+        runAction { session.sell(id) }
+        _uiState.update { it.copy(selectedId = null) }
+    }
+
     fun consumeMessage() = _uiState.update { it.copy(message = null) }
 
-    private fun runAction(action: () -> ShopResult) {
+    private fun runAction(action: () -> PlanningResult) {
         val result = action()
-        publish(message = (result as? ShopResult.Failure)?.error?.toMessage())
+        publish(message = (result as? PlanningResult.Failure)?.error?.toMessage())
     }
 
     private fun publish(message: String? = null) {
@@ -143,7 +202,12 @@ class ShopViewModel @Inject constructor(
                 expToNext = Economy.expToNextLevel(player),
                 slots = buildSlots(),
                 bench = buildBench(),
+                board = buildBoard(),
+                boardCapacity = player.boardCapacity,
                 poolRemaining = pool.totalRemaining(),
+                selectedId = state.selectedId?.takeIf { id ->
+                    (player.bench + player.board).any { it.instanceId == id }
+                },
                 message = message,
             )
         }
@@ -183,11 +247,25 @@ class ShopViewModel @Inject constructor(
         )
     }
 
-    private fun ShopError.toMessage(): String = when (this) {
-        ShopError.NOT_ENOUGH_GOLD -> "골드가 부족합니다"
-        ShopError.BENCH_FULL -> "벤치가 가득 찼습니다"
-        ShopError.SLOT_UNAVAILABLE -> "이미 구매했거나 빈 칸입니다"
-        ShopError.UNIT_NOT_FOUND -> "해당 유닛을 찾을 수 없습니다"
-        ShopError.MAX_LEVEL -> "이미 최대 레벨입니다"
+    private fun buildBoard(): List<PlacedUnitUi> = session.player.board.mapNotNull { unit ->
+        val coord = unit.position ?: return@mapNotNull null
+        PlacedUnitUi(
+            instanceId = unit.instanceId,
+            coord = coord,
+            name = unit.unitDef.name,
+            cost = unit.unitDef.cost,
+            starLevel = unit.starLevel,
+            sellPrice = Economy.sellPrice(unit),
+        )
+    }
+
+    private fun PlanningError.toMessage(): String = when (this) {
+        PlanningError.NOT_ENOUGH_GOLD -> "골드가 부족합니다"
+        PlanningError.BENCH_FULL -> "벤치가 가득 찼습니다"
+        PlanningError.SLOT_UNAVAILABLE -> "이미 구매했거나 빈 칸입니다"
+        PlanningError.UNIT_NOT_FOUND -> "해당 유닛을 찾을 수 없습니다"
+        PlanningError.MAX_LEVEL -> "이미 최대 레벨입니다"
+        PlanningError.INVALID_COORD -> "보드 밖입니다"
+        PlanningError.BOARD_FULL -> "레벨을 올려야 더 배치할 수 있습니다"
     }
 }
