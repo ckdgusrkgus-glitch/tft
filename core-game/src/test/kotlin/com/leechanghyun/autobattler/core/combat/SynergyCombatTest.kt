@@ -42,8 +42,41 @@ class SynergyCombatTest {
 
     // --- 회귀 기준점 ---
 
+    /**
+     * 기대값을 [CombatSimulator] 가 아니라 **로스터 표에서** 읽는다.
+     *
+     * `unitsFrom` 이 `setupFrom(...).units` 로 위임하므로 둘을 맞비교하면 같은 코드가 만든 값을
+     * 자기 자신과 비교하게 되어 어떤 회귀도 잡지 못한다. 실제로 `setupFrom` 이 모든 유닛에
+     * 체력 +500 을 몰래 더해도 양쪽이 똑같이 밀려 통과한다. 그래서 절대값으로 고정한다.
+     *
+     * `buffs == UnitBuffs.NONE` 이 가장 중요한 줄이다. 방어력과 쉴드만 보면 나머지 11개 필드로
+     * 새는 보정을 놓친다.
+     */
     @Test
     fun `시너지를 넘기지 않으면 4단계 전투와 완전히 같다`() {
+        val defs = SynergyFixtures.defsOf(UnitClass.WARDEN, 2)
+        val board = SynergyFixtures.board(defs, idPrefix = "p")
+        val enemy = SynergyFixtures.board(defs, idPrefix = "e")
+
+        val setup = CombatSimulator.setupFrom(board, enemy)
+        // setupFrom 은 아군을 먼저 쌓는다. 1성이라 성 배율이 1.0 이므로 로스터 값이 그대로 나와야 한다.
+        val players = setup.units.take(defs.size)
+
+        assertEquals(defs.map { it.baseHp }, players.map { it.maxHp })
+        assertEquals(defs.map { it.baseAttack }, players.map { it.attackDamage })
+        assertEquals(
+            defs.map { MasterData.skill(it.skillId).basePower },
+            players.map { it.skillPower },
+        )
+        assertTrue("무보정이면 보정이 하나도 없다", setup.units.all { it.buffs == UnitBuffs.NONE })
+        assertTrue("무보정이면 방어력이 0", setup.units.all { it.armor == 0 })
+        assertTrue("무보정이면 쉴드가 없다", setup.units.all { it.shieldPerRefresh == 0 })
+        assertEquals("시너지를 안 넘기면 발동 이벤트도 없다", 0, simulator.simulate(setup).events.count { it is CombatEvent.TraitActivated })
+    }
+
+    /** 4단계의 [CombatSimulator.unitsFrom] 진입점이 5단계 [CombatSimulator.setupFrom] 과 같은 것을 만든다. */
+    @Test
+    fun `4단계 진입점은 5단계 진입점으로 위임한다`() {
         val defs = SynergyFixtures.defsOf(UnitClass.WARDEN, 2)
         val board = SynergyFixtures.board(defs, idPrefix = "p")
         val enemy = SynergyFixtures.board(defs, idPrefix = "e")
@@ -53,10 +86,6 @@ class SynergyCombatTest {
 
         assertEquals(legacy.map { it.id }, setup.units.map { it.id })
         assertEquals(legacy.map { it.maxHp }, setup.units.map { it.maxHp })
-        assertEquals(legacy.map { it.attackDamage }, setup.units.map { it.attackDamage })
-        assertTrue("무보정이면 방어력이 0", setup.units.all { it.armor == 0 })
-        assertTrue("무보정이면 쉴드가 없다", setup.units.all { it.shieldPerRefresh == 0 })
-
         assertEquals(
             "틱 수까지 같다",
             simulator.simulate(legacy).ticks,

@@ -3,7 +3,6 @@ package com.leechanghyun.autobattler.core.combat
 import com.leechanghyun.autobattler.core.synergy.SynergyTables
 import com.leechanghyun.autobattler.core.synergy.UnitBuffs
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -254,21 +253,38 @@ class SynergyMechanicsTest {
         assertTrue("연쇄에 맞으면 마나도 오른다", bounced.mana >= CombatRules.MANA_PER_HIT_TAKEN)
     }
 
+    /**
+     * 불발이라도 충전은 소모돼야 한다.
+     *
+     * 소모하지 않으면 적이 하나만 남은 동안 충전이 무한정 쌓이고, 두 번째 적이 생기는 순간
+     * 몰아서 터진다. 그래서 "번개가 안 나갔다"만 보면 안 되고 [CombatUnit.chainCharge] 까지 봐야 한다.
+     * 충전량을 60 으로 둔 것은 두 번 때리면 100 을 넘겨 한 번 소모되고 20 이 남기 때문이다.
+     * 100 으로 두면 소모해도 안 해도 0 이라 두 구현을 구별하지 못한다.
+     */
     @Test
     fun `튈 곳이 없으면 충전만 쓰고 불발한다`() {
         val attacker = CombatFixtures.unit(
             "attacker", CombatTeam.PLAYER, row = 4, col = 3,
             def = CombatFixtures.def(baseHp = 100000, baseAttack = 1, attackRange = 1),
-            buffs = UnitBuffs(chainChargePerAttack = 100, chainDamage = 200, chainTargets = 3),
+            buffs = UnitBuffs(chainChargePerAttack = 60, chainDamage = 200, chainTargets = 3),
         )
         val lonely = CombatFixtures.unit(
             "enemy_a", CombatTeam.ENEMY, row = 3, col = 3,
             def = CombatFixtures.def(baseHp = 100000, baseAttack = 0, attackRange = 8),
         )
-        val outcome = simulator.simulate(listOf(attacker, lonely), maxTicks = 1)
+        val outcome = simulator.simulate(listOf(attacker, lonely), maxTicks = 11)
 
+        assertEquals(
+            "폭풍 유닛이 두 번 때렸다",
+            2,
+            outcome.events.count { it is CombatEvent.Attacked && it.attackerId == "attacker" },
+        )
         assertTrue("적이 하나뿐이면 튀지 않는다", outcome.events.none { it is CombatEvent.ChainLightning })
-        assertFalse(attacker.buffs.chainTargets == 0)
+        assertEquals(
+            "불발해도 충전은 소모된다",
+            2 * 60 - CombatRules.CHAIN_CHARGE_FULL,
+            attacker.chainCharge,
+        )
     }
 
     private fun shieldedUnit(baseHp: Int, percent: Float, id: String = "u") = CombatFixtures.unit(
