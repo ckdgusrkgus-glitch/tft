@@ -3,6 +3,7 @@ package com.leechanghyun.autobattler.core.combat
 import com.leechanghyun.autobattler.core.board.HexGrid
 import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.HexCoord
+import com.leechanghyun.autobattler.core.synergy.SynergyState
 
 /**
  * 틱 기반 자동전투 시뮬레이터. 명세서 4-6.
@@ -18,9 +19,16 @@ import com.leechanghyun.autobattler.core.model.HexCoord
  * 전장 좌표 순서로 고른다. 같은 배치를 넣으면 항상 같은 결과가 나오므로 단위테스트로 검증할 수 있고,
  * 8인 라운드에서 재현되지 않는 버그가 생기지 않는다. 치명타 같은 확률 요소는 11단계에서 붙인다.
  *
+ * ### 시너지 (5단계)
+ * 시너지는 [setupFrom] 에서 유닛을 조립할 때 [com.leechanghyun.autobattler.core.synergy.UnitBuffs]
+ * 로 한 번에 주입된다. 스탯 배수, 방어력 점수, 주기 쉴드, 연쇄 번개가 그렇게 들어왔다.
+ * 폭풍의 부족의 "일정 확률로"는 난수가 아니라 정수 충전으로 옮겼다. 위의 결정성 규칙은 그대로다.
+ *
  * ### 아직 반영하지 않은 것
- * 방어력/마법저항은 유닛 마스터 데이터에 없어(명세서 4-4 표에 열이 없다) 피해가 그대로 들어간다.
- * 시너지 버프는 5단계, 아이템 효과는 7단계에서 이 계산에 끼워 넣는다.
+ * 방어력과 마법저항력은 한 풀로 합쳐져 있다. 피해에 종류 구분이 없어 나눌 수 없기 때문이며,
+ * 7단계에서 수호의흔장/저항의흔장이 실제로 달라야 할 때 쪼갠다.
+ * 기계공학자 6인의 거대 골렘은 명세만 내보내고 실제 소환은 10단계다.
+ * 아이템 효과는 7단계에서 같은 [com.leechanghyun.autobattler.core.synergy.UnitBuffs] 로 합류한다.
  */
 class CombatSimulator(private val field: HexGrid = CombatField.grid) {
 
@@ -44,6 +52,7 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
 
         while (tick < maxTicks && !isOver(units)) {
             tick++
+            refreshShields(tick, order, events)
             val occupied = units.filter { it.isAlive }.associateBy { it.position }.toMutableMap()
 
             for (unit in order) {
@@ -52,11 +61,11 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
                 unit.moveCooldown = (unit.moveCooldown - 1).coerceAtLeast(0)
 
                 val target = nearestEnemy(unit, units) ?: continue
-                val inRange = HexGrid.distance(unit.position, target.position) <= unit.def.attackRange
+                val inRange = HexGrid.distance(unit.position, target.position) <= unit.attackRange
 
                 when {
                     inRange && unit.canCastSkill -> castSkill(tick, unit, target, units, events)
-                    inRange && unit.attackCooldown == 0 -> attack(tick, unit, target, events)
+                    inRange && unit.attackCooldown == 0 -> attack(tick, unit, target, units, events)
                     !inRange && unit.moveCooldown == 0 -> move(tick, unit, target, occupied, events)
                 }
             }
@@ -65,16 +74,114 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
         return buildOutcome(units, tick, timedOut = tick >= maxTicks && !isOver(units), events = events)
     }
 
+    /**
+     * 시너지까지 함께 받아 전투를 돌린다. 5단계 완료 기준이 쓰는 진입점이다.
+     *
+     * 발동한 시너지를 0틱 이벤트로 먼저 찍고 결과에도 실어 돌려준다. 시너지는 전투 내내 바뀌지
+     * 않으므로 0틱이 정직한 시점이다. 틱 루프는 건드리지 않아 4단계 전투 동작이 그대로다.
+     */
+    fun simulate(setup: CombatSetup, maxTicks: Int = CombatRules.MAX_TICKS): CombatOutcome {
+        val traitEvents = CombatTeam.entries.flatMap { team ->
+            setup.synergyFor(team).active.map { active ->
+                CombatEvent.TraitActivated(
+                    tick = 0,
+                    team = team,
+                    traitId = active.traitId,
+                    tier = active.tier,
+                    threshold = active.activeThreshold ?: 0,
+                    memberCount = active.memberCount,
+                )
+            }
+        }
+        val outcome = simulate(setup.units, maxTicks)
+        return outcome.copy(
+            events = traitEvents + outcome.events,
+            synergyByTeam = setup.synergyByTeam,
+        )
+    }
+
     // --- 행동 ---
 
-    private fun attack(tick: Int, attacker: CombatUnit, target: CombatUnit, events: MutableList<CombatEvent>) {
+    private fun attack(
+        tick: Int,
+        attacker: CombatUnit,
+        target: CombatUnit,
+        units: List<CombatUnit>,
+        events: MutableList<CombatEvent>,
+    ) {
         val dealt = target.takeDamage(attacker.attackDamage)
         attacker.attackCooldown = attacker.attackIntervalTicks
         attacker.gainMana(CombatRules.MANA_PER_ATTACK)
         target.gainMana(CombatRules.MANA_PER_HIT_TAKEN)
 
-        events += CombatEvent.Attacked(tick, attacker.id, target.id, dealt)
+        events += CombatEvent.Attacked(tick, attacker.id, target.id, dealt.hpLost, dealt.absorbed)
         if (!target.isAlive) events += CombatEvent.Died(tick, target.id)
+
+        chainLightning(tick, attacker, target, units, events)
+    }
+
+    /**
+     * 심연의 아이들의 주기 쉴드. 명세서 4-4.
+     *
+     * 유닛의 행동과 무관한 유일한 전역 단계다. 명세서가 "주기적으로 아군 전체"라고 했으므로
+     * 사거리 밖에서 걷고 있는 유닛도 받아야 하기 때문이다.
+     *
+     * 발동 틱을 `(tick - 1) % 주기` 로 재는 이유는 `tick` 이 이미 증가한 뒤라서다.
+     * 그냥 `tick % 주기` 로 하면 첫 주기를 맨몸으로 보낸다.
+     * 순회 순서는 id 순([order])이라 결정성 규칙을 그대로 따른다.
+     */
+    private fun refreshShields(tick: Int, order: List<CombatUnit>, events: MutableList<CombatEvent>) {
+        for (unit in order) {
+            if (!unit.isAlive || !unit.buffs.hasShield) continue
+            if ((tick - 1) % unit.buffs.shieldPeriodTicks != 0) continue
+            unit.refreshShield()
+            if (unit.shieldPerRefresh > 0) events += CombatEvent.Shielded(tick, unit.id, unit.shieldPerRefresh)
+        }
+    }
+
+    /**
+     * 폭풍의 부족의 연쇄 번개. 명세서 4-4.
+     *
+     * 명세서는 "일정 확률로"라고 적지만 이 엔진은 난수를 쓰지 않는다. 그래서 정수 누적 충전으로
+     * 옮겼다. 기본 공격마다 단계별 충전량을 더하고 100 을 넘으면 터뜨린 뒤 100 을 뺀다.
+     * 기대 발동 빈도가 확률과 같고 분산만 0 이며, M번 공격하면 발동 횟수가 정확히
+     * `M x 충전량 / 100` 이라 어떤 튜닝 값에도 성립하는 식으로 단언할 수 있다.
+     *
+     * 충전은 기본 공격에서만 쌓인다. 대상은 주 대상을 빼고, 살아 있는 적 중
+     * (주 대상 기준 거리 → 좌표 순서 → id) 정렬 상위 몇 명이다. 엔진이 이미 쓰는 결정적 기준이다.
+     * 피해는 [CombatUnit.takeDamage] 를 다시 지나므로 방어력과 쉴드가 적용되고, 맞은 쪽은
+     * 다른 피해와 똑같이 마나를 얻는다.
+     */
+    private fun chainLightning(
+        tick: Int,
+        attacker: CombatUnit,
+        primary: CombatUnit,
+        units: List<CombatUnit>,
+        events: MutableList<CombatEvent>,
+    ) {
+        if (!attacker.buffs.hasChain) return
+        if (!attacker.chargeChain()) return
+
+        val targets = units.filter { it.isAlive && it.team == attacker.team.opponent && it.id != primary.id }
+            .sortedWith(
+                compareBy(
+                    { HexGrid.distance(primary.position, it.position) },
+                    { coordOrder[it.position] ?: Int.MAX_VALUE },
+                    { it.id },
+                ),
+            )
+            .take(attacker.buffs.chainTargets)
+        // 터졌는데 튈 곳이 없으면 충전만 소모하고 조용히 불발한다.
+        if (targets.isEmpty()) return
+
+        val damage = attacker.buffs.chainDamage
+        targets.forEach { victim ->
+            victim.takeDamage(damage)
+            victim.gainMana(CombatRules.MANA_PER_HIT_TAKEN)
+        }
+
+        events += CombatEvent.ChainLightning(tick, attacker.id, primary.id, targets.map { it.id }, damage)
+        targets.filterNot { it.isAlive }.forEach { events += CombatEvent.Died(tick, it.id) }
     }
 
     /**
@@ -148,7 +255,7 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
         target: CombatUnit,
         occupied: Map<HexCoord, CombatUnit>,
     ): HexCoord? {
-        val range = unit.def.attackRange
+        val range = unit.attackRange
         val goals = field.coords.filter { coord ->
             HexGrid.distance(coord, target.position) <= range &&
                 (coord == unit.position || occupied[coord] == null)
@@ -218,8 +325,29 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
          * 벤치에 있는 유닛은 전투에 참가하지 않는다. 양쪽 개체 id 가 겹칠 수 있으므로
          * 진영 이름을 앞에 붙여 구분한다.
          */
-        fun unitsFrom(playerBoard: List<BoardUnit>, enemyBoard: List<BoardUnit>): List<CombatUnit> {
-            fun build(board: List<BoardUnit>, team: CombatTeam) =
+        fun unitsFrom(playerBoard: List<BoardUnit>, enemyBoard: List<BoardUnit>): List<CombatUnit> =
+            setupFrom(playerBoard, enemyBoard).units
+
+        /**
+         * 양쪽 보드와 각자의 시너지로 전투를 준비한다. 5단계.
+         *
+         * 여기가 버프의 이음매다. 이 함수만이 한 팀의 보드 전체를 한 번에 보고, 벤치를 빼는 일은
+         * 이미 [CombatUnit.from] 에서 끝났으며, id 접두어를 붙이려고 어차피 유닛을 다시 만들고 있다.
+         * 그 재생성이 그대로 버프 주입 지점이 된다.
+         *
+         * 시너지를 넘기지 않으면 4단계와 완전히 같은 전투가 된다. 보드에서 **자동으로** 시너지를
+         * 계산하지 않는 것은 의도다. 기존 호출부의 동작이 조용히 바뀌면 안 된다.
+         *
+         * 기계공학자 6단계가 내보내는 소환 명세는 여기서 **의도적으로 무시한다.** 거대 골렘은
+         * 10단계 PvE 몬스터와 같은 경로로 붙인다. [com.leechanghyun.autobattler.core.synergy.SummonSpec] 참고.
+         */
+        fun setupFrom(
+            playerBoard: List<BoardUnit>,
+            enemyBoard: List<BoardUnit>,
+            playerSynergy: SynergyState = SynergyState.NONE,
+            enemySynergy: SynergyState = SynergyState.NONE,
+        ): CombatSetup {
+            fun build(board: List<BoardUnit>, team: CombatTeam, synergy: SynergyState) =
                 board.mapNotNull { CombatUnit.from(it, team) }
                     .map { unit ->
                         CombatUnit(
@@ -229,10 +357,18 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
                             skill = unit.skill,
                             starLevel = unit.starLevel,
                             position = unit.position,
+                            buffs = synergy.combat.forUnit(unit.def),
                         )
                     }
 
-            return build(playerBoard, CombatTeam.PLAYER) + build(enemyBoard, CombatTeam.ENEMY)
+            return CombatSetup(
+                units = build(playerBoard, CombatTeam.PLAYER, playerSynergy) +
+                    build(enemyBoard, CombatTeam.ENEMY, enemySynergy),
+                synergyByTeam = mapOf(
+                    CombatTeam.PLAYER to playerSynergy,
+                    CombatTeam.ENEMY to enemySynergy,
+                ),
+            )
         }
     }
 }

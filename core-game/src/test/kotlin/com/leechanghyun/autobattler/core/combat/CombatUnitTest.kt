@@ -47,6 +47,8 @@ class CombatUnitTest {
         assertEquals(3240, unit.attackDamage)
 
         val placed = BoardUnit(instanceId = "u", unitDef = def, starLevel = 3)
+        // 이 불변식은 무보정 보드에 한해 성립한다. BoardUnit 은 영속성과 동등성의 단위라
+        // 버프 상태를 얹으면 "같은 유닛"이 이웃에 따라 equals 가 달라진다. 버프된 값은 CombatUnit 에만 있다.
         assertEquals("배치 유닛과 전투 유닛의 스탯이 어긋나면 안 된다", placed.hp, unit.maxHp)
         assertEquals(placed.attack, unit.attackDamage)
     }
@@ -79,10 +81,10 @@ class CombatUnitTest {
     fun `남은 체력보다 큰 피해는 남은 만큼만 깎인다`() {
         val unit = CombatFixtures.unit("u", CombatTeam.PLAYER, 7, 0, def = CombatFixtures.def(baseHp = 100))
 
-        assertEquals(30, unit.takeDamage(30))
+        assertEquals(30, unit.takeDamage(30).hpLost)
         assertEquals(70, unit.hp)
 
-        assertEquals("남은 70만 들어간다", 70, unit.takeDamage(500))
+        assertEquals("남은 70만 들어간다", 70, unit.takeDamage(500).hpLost)
         assertEquals(0, unit.hp)
         assertFalse(unit.isAlive)
     }

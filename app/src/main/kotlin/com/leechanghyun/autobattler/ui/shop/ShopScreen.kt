@@ -123,12 +123,72 @@ fun ShopScreen(
                 onSelect = onSelect,
             )
             SelectionBar(state, onSellSelected, onSelect)
+            SynergyPanel(state.synergies)
 
             Spacer(Modifier.height(4.dp))
             Text("상점", style = MaterialTheme.typography.titleMedium)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.slots.forEach { slot ->
                     ShopSlotCard(slot = slot, onBuy = { onBuy(slot.index) })
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 시너지 패널. 로드맵 5단계. 명세서 4-4.
+ *
+ * 발동한 줄은 강조하고 미달인 줄은 회색으로 "1 / 2" 를 보여준다. 어디까지 모았는지 알아야
+ * 유닛을 더 살지 말지 정할 수 있기 때문이다. 목록이 비면 아무것도 그리지 않는다.
+ */
+@Composable
+private fun SynergyPanel(synergies: List<SynergyUi>) {
+    if (synergies.isEmpty()) return
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("시너지", style = MaterialTheme.typography.titleMedium)
+            synergies.forEach { synergy ->
+                val active = synergy.tier > 0
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        synergy.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = if (active) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Text(
+                        if (active) {
+                            "${synergy.memberCount} (${synergy.tier}단계)"
+                        } else {
+                            "${synergy.memberCount} / ${synergy.nextThreshold}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (active) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                val effect = synergy.effect
+                if (active && effect != null) {
+                    Text(
+                        effect,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -329,6 +389,11 @@ private fun ShopScreenPreview() {
                 bench = listOf(
                     BenchUnitUi("u0", "강철수호병", 1, 1, "기계공학자", "수호자", 1),
                     BenchUnitUi("u1", "어둠칼날", 2, 2, "심연의 아이들", "검사", 5),
+                ),
+                synergies = listOf(
+                    SynergyUi("기계공학자", 2, 1, 2, 4, "아군 전체 방어력/마법저항력 증가"),
+                    SynergyUi("폭풍의 부족", 1, 0, null, 2, null),
+                    SynergyUi("수호자", 2, 1, 2, 4, "수호자 유닛 최대 체력 증가"),
                 ),
             ),
             onBuy = {},

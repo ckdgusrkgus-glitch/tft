@@ -9,6 +9,8 @@ import com.leechanghyun.autobattler.core.masterdata.EconomyRules
 import com.leechanghyun.autobattler.core.model.HexCoord
 import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.PlayerState
+import com.leechanghyun.autobattler.core.synergy.SynergyEngine
+import com.leechanghyun.autobattler.core.synergy.SynergyState
 
 /** 준비 단계 조작이 실패한 이유. UI 가 사용자에게 보여줄 메시지를 고르는 데 쓴다. */
 enum class PlanningError {
@@ -231,6 +233,18 @@ class PlanningSession(
 
     /** [coord] 칸에 있는 유닛. 빈 칸이면 null. */
     fun unitAt(coord: HexCoord) = player.board.firstOrNull { it.position == coord }
+
+    /**
+     * 지금 보드 구성의 시너지 상태. 로드맵 5단계 완료 기준인 "보드 구성에 따라 버프 정상 적용"이다.
+     *
+     * **캐시하지 않는다.** 이 클래스의 모든 변경이 [player] 통째 재대입이고 제자리 변경이 한 군데도
+     * 없으므로 계산 getter 는 언제 읽어도 옳다. 보드는 레벨 상한 때문에 최대 10칸이라 재계산 비용이
+     * 무효화 버그의 위험보다 훨씬 싸다. 8단계에 봇 8인이 붙으면 다시 재어 본다.
+     *
+     * 보드 구성을 실제로 바꾸는 경로는 [moveToBoard] 의 벤치→빈칸 분기, [returnToBench], [sell] 셋뿐이다.
+     * 보드 안에서 자리를 맞바꾸는 것은 구성이 그대로라 단계가 변하지 않는다.
+     */
+    val synergy: SynergyState get() = SynergyEngine.resolve(player)
 
     /** 전투 결과를 반영한다. 실제 전투 판정은 로드맵 4단계에서 붙는다. */
     fun recordResult(won: Boolean, hpLoss: Int = 0) {

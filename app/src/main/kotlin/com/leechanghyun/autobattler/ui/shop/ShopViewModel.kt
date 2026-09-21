@@ -45,6 +45,23 @@ data class PlacedUnitUi(
     val sellPrice: Int,
 )
 
+/**
+ * 시너지 패널 한 줄의 표시용 데이터.
+ *
+ * 값은 전부 `core-game` 의 시너지 엔진에서 이미 해석돼 온다. 이 화면은 인원을 세지도,
+ * 임계값을 비교하지도 않는다.
+ *
+ * @param tier 0 이면 미발동이다. 회색으로 "수호자 1/2" 를 그린다.
+ */
+data class SynergyUi(
+    val name: String,
+    val memberCount: Int,
+    val tier: Int,
+    val activeThreshold: Int?,
+    val nextThreshold: Int?,
+    val effect: String?,
+)
+
 /** 벤치 1칸의 표시용 데이터. */
 data class BenchUnitUi(
     val instanceId: String,
@@ -76,6 +93,8 @@ data class ShopUiState(
     val benchCapacity: Int = PlayerState.BENCH_SIZE,
     val board: List<PlacedUnitUi> = emptyList(),
     val boardCapacity: Int = 1,
+    /** 보드에 구성원이 한 명이라도 있는 시너지. 미발동도 포함한다. */
+    val synergies: List<SynergyUi> = emptyList(),
     /** 탭으로 고른 유닛. 판매 버튼이 이 유닛을 대상으로 한다. */
     val selectedId: String? = null,
     val poolRemaining: Int = 0,
@@ -204,6 +223,7 @@ class ShopViewModel @Inject constructor(
                 bench = buildBench(),
                 board = buildBoard(),
                 boardCapacity = player.boardCapacity,
+                synergies = buildSynergies(),
                 poolRemaining = pool.totalRemaining(),
                 selectedId = state.selectedId?.takeIf { id ->
                     (player.bench + player.board).any { it.instanceId == id }
@@ -244,6 +264,23 @@ class ShopViewModel @Inject constructor(
             origin = unit.unitDef.origin.displayName,
             unitClass = unit.unitDef.unitClass.displayName,
             sellPrice = Economy.sellPrice(unit),
+        )
+    }
+
+    /**
+     * 시너지 패널. 로드맵 5단계.
+     *
+     * 규칙과 수치는 전부 [com.leechanghyun.autobattler.core.synergy.SynergyEngine] 이 이미 계산했다.
+     * 여기서 다시 세면 안드로이드 없이 검증할 수 없는 로직이 생긴다.
+     */
+    private fun buildSynergies(): List<SynergyUi> = session.synergy.activeTraits.map { trait ->
+        SynergyUi(
+            name = trait.name,
+            memberCount = trait.memberCount,
+            tier = trait.tier,
+            activeThreshold = trait.activeThreshold,
+            nextThreshold = trait.nextThreshold,
+            effect = trait.effectText,
         )
     }
 

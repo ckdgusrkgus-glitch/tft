@@ -6,6 +6,7 @@ import com.leechanghyun.autobattler.core.model.PrimaryStat
 import com.leechanghyun.autobattler.core.model.SkillDef
 import com.leechanghyun.autobattler.core.model.UnitClass
 import com.leechanghyun.autobattler.core.model.UnitDef
+import com.leechanghyun.autobattler.core.synergy.UnitBuffs
 
 /**
  * 전투 테스트용 유닛 생성기.
@@ -70,6 +71,7 @@ internal object CombatFixtures {
         def: UnitDef = def(),
         skill: SkillDef = noSkill(),
         starLevel: Int = 1,
+        buffs: UnitBuffs = UnitBuffs.NONE,
     ) = CombatUnit(
         id = id,
         team = team,
@@ -77,5 +79,6 @@ internal object CombatFixtures {
         skill = skill,
         starLevel = starLevel,
         position = CombatField.grid.fromOffset(OffsetCoord(row, col)),
+        buffs = buffs,
     )
 }
