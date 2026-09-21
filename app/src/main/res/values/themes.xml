@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 실제 색상은 Compose 의 AutoBattlerTheme 이 정한다. 여기서는 스플래시 배경만 잡는다. -->
+    <style name="Theme.AutoBattler" parent="android:Theme.Material.NoActionBar" />
+</resources>
