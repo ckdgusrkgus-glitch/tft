@@ -39,7 +39,12 @@ class GameDataRepository @Inject constructor(
 
     suspend fun traits(): List<TraitDef> = dao.getTraits().map(MasterDataMapper::toDomain)
 
-    suspend fun itemComponents(): List<ItemDef> = dao.getItems().map(MasterDataMapper::toDomain)
+    /** 컴포넌트 9종 + 완성 아이템 45종. */
+    suspend fun items(): List<ItemDef> = dao.getItems().map(MasterDataMapper::toDomain)
+
+    suspend fun itemComponents(): List<ItemDef> = items().filter { it.isComponent }
+
+    suspend fun completedItems(): List<ItemDef> = items().filterNot { it.isComponent }
 
     suspend fun augments(): List<AugmentDef> = dao.getAugments().map(MasterDataMapper::toDomain)
 

@@ -17,8 +17,11 @@ enum class StatType(val displayName: String) {
  * 아이템 마스터 데이터. 명세서 4-5 + 5장 데이터 모델 초안.
  *
  * @param statModifiers 스탯별 증가량. 비율 증가(공격속도/치명타 등)는 0.1 == +10% 로 해석한다.
+ *   완성 아이템의 값은 재료 컴포넌트 2개의 합이다.
  * @param isComponent true 면 기본 아이템(컴포넌트), false 면 컴포넌트 2개를 합친 완성 아이템이다.
  * @param recipe 완성 아이템일 때 재료 컴포넌트 2개의 id. 컴포넌트면 비어 있다.
+ * @param description 완성 아이템의 고유 효과 설명. 컴포넌트는 빈 문자열이다.
+ * @param effectId 전투 로직이 고유 효과를 분기할 때 쓰는 키. 실제 효과 구현은 로드맵 7단계에서 붙인다.
  */
 data class ItemDef(
     val id: String,
@@ -26,6 +29,8 @@ data class ItemDef(
     val statModifiers: Map<StatType, Float>,
     val isComponent: Boolean,
     val recipe: List<String> = emptyList(),
+    val description: String = "",
+    val effectId: String = "",
 ) {
     init {
         if (isComponent) {
@@ -33,5 +38,15 @@ data class ItemDef(
         } else {
             require(recipe.size == 2) { "완성 아이템 $id 는 컴포넌트 2개로 조합되어야 한다" }
         }
+    }
+
+    /** 조합식을 순서 무관하게 비교하기 위한 키. 예: "comp_might+comp_wisdom" */
+    val recipeKey: String get() = recipeKeyOf(recipe)
+
+    companion object {
+        /** 컴포넌트 2개를 순서와 무관한 하나의 키로 만든다. */
+        fun recipeKeyOf(componentIds: List<String>): String = componentIds.sorted().joinToString("+")
+
+        fun recipeKeyOf(first: String, second: String): String = recipeKeyOf(listOf(first, second))
     }
 }

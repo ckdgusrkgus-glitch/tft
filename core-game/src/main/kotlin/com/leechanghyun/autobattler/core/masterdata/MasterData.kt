@@ -21,12 +21,18 @@ object MasterData {
     val skills: List<SkillDef> = SKILL_DEFS
     val traits: List<TraitDef> = TRAIT_DEFS
     val itemComponents: List<ItemDef> = ITEM_COMPONENT_DEFS
+    val completedItems: List<ItemDef> = COMPLETED_ITEM_DEFS
+
+    /** 컴포넌트 9종 + 완성 아이템 45종. Room 에는 이 목록이 통째로 들어간다. */
+    val items: List<ItemDef> = itemComponents + completedItems
     val augments: List<AugmentDef> = AUGMENT_DEFS
     val monsters: List<MonsterDef> = MONSTER_DEFS
 
     private val unitsById: Map<String, UnitDef> = units.associateBy { it.id }
     private val skillsById: Map<String, SkillDef> = skills.associateBy { it.id }
     private val traitsById: Map<String, TraitDef> = traits.associateBy { it.id }
+    private val itemsById: Map<String, ItemDef> = items.associateBy { it.id }
+    private val completedByRecipe: Map<String, ItemDef> = completedItems.associateBy { it.recipeKey }
 
     /** 코스트별로 묶은 유닛 목록. 상점 롤에서 등급이 정해진 뒤 이 목록에서 하나를 뽑는다. */
     val unitsByCost: Map<Int, List<UnitDef>> = units.groupBy { it.cost }
@@ -40,6 +46,16 @@ object MasterData {
     fun trait(origin: Origin): TraitDef = trait(origin.traitId)
 
     fun trait(unitClass: UnitClass): TraitDef = trait(unitClass.traitId)
+
+    fun item(id: String): ItemDef = requireNotNull(itemsById[id]) { "알 수 없는 아이템 id: $id" }
+
+    /**
+     * 컴포넌트 2개를 합쳐 만들어지는 완성 아이템. 순서는 상관없다.
+     *
+     * 컴포넌트가 아닌 id 를 넘기거나 조합식이 없으면 null 을 돌려준다.
+     */
+    fun combine(firstComponentId: String, secondComponentId: String): ItemDef? =
+        completedByRecipe[ItemDef.recipeKeyOf(firstComponentId, secondComponentId)]
 
     /** 스테이지 [stage] 의 크립 라운드 몬스터. 크립 라운드가 없는 스테이지면 null. */
     fun monsterForStage(stage: Int): MonsterDef? = monsters.firstOrNull { it.stage == stage }
@@ -56,6 +72,16 @@ object MasterData {
         }
         require(unitsByCost.keys.all { POOL_SIZE_BY_COST.containsKey(it) }) {
             "풀 크기표에 없는 코스트의 유닛이 있다"
+        }
+        require(itemsById.size == items.size) { "아이템 id 가 중복됐다" }
+        require(completedByRecipe.size == completedItems.size) { "완성 아이템의 조합식이 중복됐다" }
+        completedItems.forEach { completed ->
+            completed.recipe.forEach { componentId ->
+                val component = itemsById[componentId]
+                require(component != null && component.isComponent) {
+                    "완성 아이템 ${completed.id} 가 컴포넌트가 아닌 $componentId 를 재료로 쓴다"
+                }
+            }
         }
     }
 }

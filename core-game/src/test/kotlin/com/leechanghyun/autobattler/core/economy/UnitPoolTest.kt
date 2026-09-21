@@ -13,12 +13,12 @@ class UnitPoolTest {
     @Test
     fun `초기 재고는 코스트별 풀 크기와 유닛 종류 수의 곱이다`() {
         val pool = UnitPool()
-        assertEquals("1코스트 4종 x 22장", 4 * 22, pool.remainingOfCost(1))
-        assertEquals("2코스트 4종 x 20장", 4 * 20, pool.remainingOfCost(2))
-        assertEquals("3코스트 3종 x 17장", 3 * 17, pool.remainingOfCost(3))
-        assertEquals("4코스트 2종 x 10장", 2 * 10, pool.remainingOfCost(4))
-        assertEquals("5코스트 1종 x 9장", 9, pool.remainingOfCost(5))
-        assertEquals(4 * 22 + 4 * 20 + 3 * 17 + 2 * 10 + 9, pool.totalRemaining())
+        assertEquals("1코스트 6종 x 22장", 6 * 22, pool.remainingOfCost(1))
+        assertEquals("2코스트 6종 x 20장", 6 * 20, pool.remainingOfCost(2))
+        assertEquals("3코스트 5종 x 17장", 5 * 17, pool.remainingOfCost(3))
+        assertEquals("4코스트 4종 x 10장", 4 * 10, pool.remainingOfCost(4))
+        assertEquals("5코스트 3종 x 9장", 3 * 9, pool.remainingOfCost(5))
+        assertEquals(6 * 22 + 6 * 20 + 5 * 17 + 4 * 10 + 3 * 9, pool.totalRemaining())
     }
 
     @Test
@@ -41,6 +41,15 @@ class UnitPoolTest {
 
         assertEquals(0, pool.remaining("apostle_of_end"))
         assertNull("재고 0이면 null", pool.take("apostle_of_end"))
+
+        // 같은 등급의 다른 유닛은 아직 남아 있으므로 등급 추첨은 계속 성공한다.
+        assertNotNull("5코스트 다른 유닛은 남아 있다", pool.takeRandomOfCost(5, Random(0)))
+
+        // 5코스트 전체를 비우면 그때부터 등급 추첨이 실패한다.
+        MasterData.unitsByCost.getValue(5).forEach { unit ->
+            repeat(pool.remaining(unit.id)) { pool.take(unit.id) }
+        }
+        assertEquals(0, pool.remainingOfCost(5))
         assertNull("등급 전체가 비면 null", pool.takeRandomOfCost(5, Random(0)))
     }
 
@@ -52,13 +61,13 @@ class UnitPoolTest {
             val unit = requireNotNull(pool.takeRandomOfCost(2, random))
             assertEquals("2코스트만 나와야 한다", 2, unit.cost)
         }
-        assertEquals(4 * 20 - 50, pool.remainingOfCost(2))
+        assertEquals(6 * 20 - 50, pool.remainingOfCost(2))
     }
 
     @Test
     fun `추첨은 재고가 많은 유닛을 더 자주 뽑는다`() {
         val pool = UnitPool()
-        // 1코스트 4종 중 3종의 재고를 1장만 남기고 모두 비운다.
+        // 1코스트 6종 중 5종의 재고를 1장만 남기고 모두 비운다.
         val ones = MasterData.unitsByCost.getValue(1)
         val plentiful = ones.first()
         ones.drop(1).forEach { unit ->
@@ -72,6 +81,6 @@ class UnitPoolTest {
             unit.id
         }
         val plentifulShare = draws.count { it == plentiful.id } / draws.size.toDouble()
-        assertEquals("재고 22 대 1x3 이면 압도적으로 많이 뽑혀야 한다", true, plentifulShare > 0.7)
+        assertEquals("재고 22 대 1x5 이면 압도적으로 많이 뽑혀야 한다", true, plentifulShare > 0.7)
     }
 }

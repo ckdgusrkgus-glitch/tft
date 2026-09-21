@@ -45,10 +45,10 @@ class MasterDataRoomTest {
     fun `시딩하면 명세서 4장 표가 모두 들어간다`() = runTest {
         assertTrue("빈 DB 는 시딩된다", seeder.seedIfEmpty())
 
-        assertEquals(14, dao.getUnits().size)
-        assertEquals(14, dao.getSkills().size)
+        assertEquals(24, dao.getUnits().size)
+        assertEquals(24, dao.getSkills().size)
         assertEquals(8, dao.getTraits().size)
-        assertEquals(9, dao.getItems().size)
+        assertEquals("컴포넌트 9종 + 완성 아이템 45종", 54, dao.getItems().size)
         assertEquals(10, dao.getAugments().size)
         assertEquals(4, dao.getMonsters().size)
     }
@@ -57,7 +57,7 @@ class MasterDataRoomTest {
     fun `이미 시딩된 DB 는 다시 시딩하지 않는다`() = runTest {
         seeder.seedIfEmpty()
         assertFalse("두 번째 호출은 건너뛴다", seeder.seedIfEmpty())
-        assertEquals(14, dao.countUnits())
+        assertEquals(24, dao.countUnits())
     }
 
     @Test
@@ -70,6 +70,17 @@ class MasterDataRoomTest {
     }
 
     @Test
+    fun `완성 아이템의 조합식도 그대로 복원된다`() = runTest {
+        seeder.seed()
+        val items = dao.getItems().map(MasterDataMapper::toDomain).associateBy { it.id }
+        val infinityBlade = items.getValue("item_infinity_blade")
+        assertEquals(listOf("comp_might", "comp_pierce"), infinityBlade.recipe)
+        assertFalse(infinityBlade.isComponent)
+        assertTrue(infinityBlade.description.isNotBlank())
+        assertEquals(45, items.values.count { !it.isComponent })
+    }
+
+    @Test
     fun `시너지와 아이템의 리스트-맵 필드도 그대로 복원된다`() = runTest {
         seeder.seed()
 
@@ -79,7 +90,7 @@ class MasterDataRoomTest {
         }
 
         val items = dao.getItems().map(MasterDataMapper::toDomain).associateBy { it.id }
-        MasterData.itemComponents.forEach { original ->
+        MasterData.items.forEach { original ->
             assertEquals("아이템 ${original.name}", original, items[original.id])
         }
     }
@@ -99,8 +110,11 @@ class MasterDataRoomTest {
     @Test
     fun `코스트로 유닛을 조회할 수 있다`() = runTest {
         seeder.seed()
-        assertEquals(4, dao.getUnitsByCost(1).size)
-        assertEquals(1, dao.getUnitsByCost(5).size)
-        assertEquals("종말의 사도", dao.getUnitsByCost(5).single().name)
+        assertEquals(6, dao.getUnitsByCost(1).size)
+        assertEquals(3, dao.getUnitsByCost(5).size)
+        assertTrue(
+            "5코스트에 종말의 사도가 있다",
+            dao.getUnitsByCost(5).any { it.name == "종말의 사도" },
+        )
     }
 }

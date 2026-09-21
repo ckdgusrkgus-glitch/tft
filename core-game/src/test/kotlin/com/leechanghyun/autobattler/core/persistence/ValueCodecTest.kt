@@ -45,7 +45,7 @@ class ValueCodecTest {
                 ValueCodec.decodeIntStringMap(ValueCodec.encodeIntStringMap(trait.effectsByThreshold)),
             )
         }
-        MasterData.itemComponents.forEach { item ->
+        MasterData.items.forEach { item ->
             assertEquals(
                 item.statModifiers,
                 ValueCodec.decodeStatMap(ValueCodec.encodeStatMap(item.statModifiers)),

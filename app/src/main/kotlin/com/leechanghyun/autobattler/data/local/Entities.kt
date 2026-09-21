@@ -56,6 +56,10 @@ data class ItemEntity(
     val isComponent: Boolean,
     /** 인코딩된 컴포넌트 id 목록. 컴포넌트면 빈 문자열. */
     val recipe: String,
+    /** 완성 아이템의 고유 효과 설명. 컴포넌트면 빈 문자열. */
+    val description: String,
+    /** 전투 로직이 고유 효과를 분기할 때 쓰는 키. */
+    val effectId: String,
 )
 
 @Entity(tableName = "augments")

@@ -17,13 +17,22 @@ import org.junit.Test
 class MasterDataTest {
 
     @Test
-    fun `명세서가 정한 종류 수와 일치한다`() {
-        assertEquals("유닛 14종", 14, MasterData.units.size)
+    fun `마스터 데이터의 종류 수가 맞다`() {
+        assertEquals("유닛 24종 (명세서 14종 + 확장 10종)", 24, MasterData.units.size)
         assertEquals("시너지 8종", 8, MasterData.traits.size)
         assertEquals("아이템 컴포넌트 9종", 9, MasterData.itemComponents.size)
+        assertEquals("완성 아이템 45종", 45, MasterData.completedItems.size)
+        assertEquals("아이템 전체 54종", 54, MasterData.items.size)
         assertEquals("증강 10종", 10, MasterData.augments.size)
         assertEquals("몬스터 4종", 4, MasterData.monsters.size)
         assertEquals("유닛마다 스킬 1개", MasterData.units.size, MasterData.skills.size)
+    }
+
+    @Test
+    fun `명세서 원본 14종은 그대로 남아 있다`() {
+        assertEquals(14, SPEC_UNIT_DEFS.size)
+        assertEquals(10, EXPANSION_UNIT_DEFS.size)
+        assertTrue("원본 유닛은 전체 로스터에 그대로 포함된다", MasterData.units.containsAll(SPEC_UNIT_DEFS))
     }
 
     @Test
@@ -33,7 +42,7 @@ class MasterDataTest {
 
         assertUnique("유닛", MasterData.units.map { it.id })
         assertUnique("시너지", MasterData.traits.map { it.id })
-        assertUnique("아이템", MasterData.itemComponents.map { it.id })
+        assertUnique("아이템", MasterData.items.map { it.id })
         assertUnique("증강", MasterData.augments.map { it.id })
         assertUnique("몬스터", MasterData.monsters.map { it.id })
         assertUnique("스킬", MasterData.skills.map { it.id })
@@ -47,9 +56,10 @@ class MasterDataTest {
     }
 
     @Test
-    fun `코스트별 유닛 수가 명세서 로스터와 일치한다`() {
+    fun `코스트별 유닛 수가 확장 후 분포와 일치한다`() {
         val byCost = MasterData.units.groupingBy { it.cost }.eachCount()
-        assertEquals(mapOf(1 to 4, 2 to 4, 3 to 3, 4 to 2, 5 to 1), byCost)
+        assertEquals(mapOf(1 to 6, 2 to 6, 3 to 5, 4 to 4, 5 to 3), byCost)
+        assertEquals(24, byCost.values.sum())
     }
 
     @Test
@@ -90,22 +100,20 @@ class MasterDataTest {
     }
 
     /**
-     * 로스터 14종으로는 도달할 수 없는 시너지 임계값이 있다는 사실을 고정해 둔다.
+     * 확장한 로스터 24종으로 모든 시너지 임계값이 달성 가능한지 검증한다.
      *
-     * 계열별 유닛 수가 3~4종뿐이라 임계값 6 은 어떤 계열도 달성할 수 없고,
-     * 기계공학자/황금가문/수호자/사수는 4 도 달성할 수 없다.
-     * 명세서 4-4 표 자체의 한계이므로 버그가 아니라 **기록해 둔 제약**이다.
-     * 로드맵 5단계(시너지 엔진)와 11단계(밸런스)에서 로스터를 늘리거나 임계값을 낮춰야 한다.
+     * 명세서 원본 14종에서는 계열 임계값 6을 어느 계열도 달성할 수 없었고,
+     * 기계공학자/황금가문은 4도 막혀 있었다. 계열 6종 / 직업 6종으로 맞춰 해소했다.
      */
     @Test
-    fun `로스터로 도달 가능한 시너지 임계값을 기록한다`() {
+    fun `모든 시너지 임계값이 로스터로 달성 가능하다`() {
         val originCounts = MasterData.units.groupingBy { it.origin }.eachCount()
         assertEquals(
             mapOf(
-                Origin.MECHA to 3,
-                Origin.STORM_TRIBE to 4,
-                Origin.ABYSSAL to 4,
-                Origin.GOLDEN_HOUSE to 3,
+                Origin.MECHA to 6,
+                Origin.STORM_TRIBE to 6,
+                Origin.ABYSSAL to 6,
+                Origin.GOLDEN_HOUSE to 6,
             ),
             originCounts,
         )
@@ -113,18 +121,25 @@ class MasterDataTest {
         val classCounts = MasterData.units.groupingBy { it.unitClass }.eachCount()
         assertEquals(
             mapOf(
-                UnitClass.WARDEN to 3,
-                UnitClass.ARCANIST to 4,
-                UnitClass.BLADE to 4,
-                UnitClass.MARKSMAN to 3,
+                UnitClass.WARDEN to 6,
+                UnitClass.ARCANIST to 6,
+                UnitClass.BLADE to 6,
+                UnitClass.MARKSMAN to 6,
             ),
             classCounts,
         )
 
-        assertTrue(
-            "계열 임계값 6 은 현재 로스터로 달성 불가",
-            originCounts.values.all { it < 6 },
-        )
+        MasterData.traits.forEach { trait ->
+            val available = when (trait.kind) {
+                TraitKind.ORIGIN -> originCounts.getValue(Origin.entries.first { it.traitId == trait.id })
+                TraitKind.CLASS -> classCounts.getValue(UnitClass.entries.first { it.traitId == trait.id })
+            }
+            val highest = trait.thresholds.max()
+            assertTrue(
+                "${trait.name} 의 최고 임계값 $highest 를 채우려면 ${highest}종이 필요한데 $available 종뿐이다",
+                available >= highest,
+            )
+        }
     }
 
     @Test

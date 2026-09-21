@@ -6,13 +6,16 @@ import com.leechanghyun.autobattler.core.model.UnitClass
 import com.leechanghyun.autobattler.core.model.UnitDef
 
 /**
- * 유닛 로스터 14종. 명세서 4-4 표를 그대로 옮긴 것이다.
+ * 명세서 4-4 표의 원본 로스터 14종. 표를 그대로 옮긴 것이다.
  *
- * HP / 공격력 / 사거리 / 계열 / 직업 / 코스트는 명세서 확정값이다.
+ * HP / 공격력 / 사거리 / 계열 / 직업 / 코스트는 명세서 확정값이므로 **여기 값은 수정하지 않는다.**
  * `attackSpeed` 만 명세서 표에 없어 임의 초기값으로 채웠고, 11단계에서 조정한다.
  * (사거리가 길수록 공격속도를 낮게, 근접 검사 계열을 높게 잡는 관행을 따랐다.)
+ *
+ * 시너지 임계값을 채우기 위해 추가한 유닛은 [EXPANSION_UNIT_DEFS] 에 따로 있고,
+ * 실제로 쓰이는 전체 로스터는 [UNIT_DEFS] 다.
  */
-internal val UNIT_DEFS: List<UnitDef> = listOf(
+internal val SPEC_UNIT_DEFS: List<UnitDef> = listOf(
     // --- 1코스트 ---
     UnitDef(
         id = "steel_guard",
@@ -205,3 +208,6 @@ internal val UNIT_DEFS: List<UnitDef> = listOf(
         skillId = "skill_doomsday",
     ),
 )
+
+/** 명세서 원본 14종 + 확장 10종을 합친 실제 로스터 24종. */
+internal val UNIT_DEFS: List<UnitDef> = SPEC_UNIT_DEFS + EXPANSION_UNIT_DEFS

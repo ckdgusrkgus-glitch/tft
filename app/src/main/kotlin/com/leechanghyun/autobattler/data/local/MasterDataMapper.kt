@@ -90,6 +90,8 @@ object MasterDataMapper {
         statModifiers = ValueCodec.encodeStatMap(def.statModifiers),
         isComponent = def.isComponent,
         recipe = ValueCodec.encodeStringList(def.recipe),
+        description = def.description,
+        effectId = def.effectId,
     )
 
     fun toDomain(entity: ItemEntity) = ItemDef(
@@ -98,6 +100,8 @@ object MasterDataMapper {
         statModifiers = ValueCodec.decodeStatMap(entity.statModifiers),
         isComponent = entity.isComponent,
         recipe = ValueCodec.decodeStringList(entity.recipe),
+        description = entity.description,
+        effectId = entity.effectId,
     )
 
     fun toEntity(def: AugmentDef) = AugmentEntity(

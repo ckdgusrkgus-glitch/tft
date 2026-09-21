@@ -27,7 +27,7 @@ class MasterDataSeeder @Inject constructor(
         dao.insertSkills(MasterData.skills.map(MasterDataMapper::toEntity))
         dao.insertUnits(MasterData.units.map(MasterDataMapper::toEntity))
         dao.insertTraits(MasterData.traits.map(MasterDataMapper::toEntity))
-        dao.insertItems(MasterData.itemComponents.map(MasterDataMapper::toEntity))
+        dao.insertItems(MasterData.items.map(MasterDataMapper::toEntity))
         dao.insertAugments(MasterData.augments.map(MasterDataMapper::toEntity))
         dao.insertMonsters(MasterData.monsters.map(MasterDataMapper::toEntity))
     }
