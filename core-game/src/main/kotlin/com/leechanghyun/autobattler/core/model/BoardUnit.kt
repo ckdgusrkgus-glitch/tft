@@ -26,9 +26,25 @@ data class BoardUnit(
 
     val isOnBoard: Boolean get() = position != null
 
+    /**
+     * 이 개체가 소모한 풀 카드 장수. 1성 1장, 2성 3장, 3성 9장이다.
+     *
+     * 판매할 때 이만큼을 공용 풀에 되돌려야 다른 플레이어가 다시 뽑을 수 있다.
+     */
+    val copiesConsumed: Int get() = COPIES_PER_STAR_UP.pow(starLevel - 1)
+
+    private fun Int.pow(exponent: Int): Int {
+        var result = 1
+        repeat(exponent) { result *= this }
+        return result
+    }
+
     companion object {
         const val MAX_STAR = 3
         const val MAX_ITEM_SLOTS = 3
+
+        /** 한 단계 성을 올리는 데 필요한 같은 유닛 수. 명세서 4-3: 3개. */
+        const val COPIES_PER_STAR_UP = 3
 
         /** 명세서 4-3 의 등급별 스탯 배율. */
         const val STAR_UP_MULTIPLIER = 1.8f

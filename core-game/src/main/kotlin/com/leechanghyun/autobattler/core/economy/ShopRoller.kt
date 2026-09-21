@@ -18,7 +18,15 @@ data class ShopSlot(
 
 /** 상점 5칸 한 세트. 명세서 4-1. */
 data class ShopOffer(val slots: List<ShopSlot>) {
+    /** 칸에 들어 있는 유닛 전체. 이미 구매한 칸도 포함한다. */
     val units: List<UnitDef> get() = slots.mapNotNull { it.unit }
+
+    /** 아직 살 수 있는 유닛. 구매한 칸은 빠진다. */
+    val availableUnits: List<UnitDef> get() = slots.filterNot { it.purchased }.mapNotNull { it.unit }
+
+    /** [index] 칸을 구매 처리한 새 상점. 칸은 비우지 않고 구매 표시만 남긴다. */
+    fun markPurchased(index: Int): ShopOffer =
+        copy(slots = slots.mapIndexed { i, slot -> if (i == index) slot.copy(purchased = true) else slot })
 
     companion object {
         val EMPTY = ShopOffer(List(EconomyRules.SHOP_SLOT_COUNT) { ShopSlot(null) })
@@ -51,9 +59,14 @@ class ShopRoller(
         return ShopOffer(List(slotCount) { ShopSlot(rollSlot(level)) })
     }
 
-    /** 상점에 남아 있는 유닛을 모두 풀에 되돌린다. */
+    /**
+     * 상점에 남아 있는 유닛을 풀에 되돌린다.
+     *
+     * 이미 구매한 칸은 플레이어의 벤치에 있으므로 되돌리지 않는다.
+     * 그 카드는 판매할 때 풀로 돌아간다.
+     */
     fun giveBackOffer(offer: ShopOffer) {
-        pool.giveBackAll(offer.units.map { it.id })
+        pool.giveBackAll(offer.availableUnits.map { it.id })
     }
 
     /**

@@ -2,8 +2,11 @@ package com.leechanghyun.autobattler.ui.shop
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.leechanghyun.autobattler.core.economy.ShopOffer
+import com.leechanghyun.autobattler.core.economy.Economy
+import com.leechanghyun.autobattler.core.economy.ShopError
+import com.leechanghyun.autobattler.core.economy.ShopResult
 import com.leechanghyun.autobattler.core.economy.ShopRoller
+import com.leechanghyun.autobattler.core.economy.ShopSession
 import com.leechanghyun.autobattler.core.economy.UnitPool
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
 import com.leechanghyun.autobattler.core.model.PlayerState
@@ -16,36 +19,62 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * 상점 화면 상태.
- *
- * @param isLoading DB 시딩과 첫 조회가 끝나기 전 상태
- * @param slots 상점 5칸. 유닛이 없는 칸은 null 이다.
- */
-data class ShopUiState(
-    val isLoading: Boolean = true,
-    val level: Int = 3,
-    val slots: List<ShopSlotUi> = emptyList(),
-    val poolRemaining: Int = 0,
-    val rollCount: Int = 0,
-)
-
 /** 상점 1칸의 표시용 데이터. */
 data class ShopSlotUi(
+    val index: Int,
     val unitId: String?,
     val name: String,
     val cost: Int,
     val origin: String,
     val unitClass: String,
     val skillName: String,
+    val purchased: Boolean,
+    /** 지금 살 수 있는지. 골드 부족, 벤치 만석, 이미 구매면 false 다. */
+    val buyable: Boolean,
+)
+
+/** 벤치 1칸의 표시용 데이터. */
+data class BenchUnitUi(
+    val instanceId: String,
+    val name: String,
+    val cost: Int,
+    val starLevel: Int,
+    val origin: String,
+    val unitClass: String,
+    /** 판매 시 돌려받는 골드. */
+    val sellPrice: Int,
 )
 
 /**
- * 로드맵 1단계 완료 기준을 화면에서 확인하기 위한 ViewModel.
+ * 상점 화면 상태.
  *
- * Room 에서 읽어온 **실제 마스터 데이터**로 공용 풀을 만들고,
- * 순수 Kotlin 로직인 [ShopRoller] 로 5칸을 뽑는다.
- * 구매/판매와 골드 차감은 로드맵 2단계에서 붙인다.
+ * @param expToNext 다음 레벨까지 남은 경험치. 최대 레벨이면 null.
+ * @param message 조작 실패를 알리는 한 줄 메시지. 표시한 뒤 [ShopViewModel.consumeMessage] 로 지운다.
+ */
+data class ShopUiState(
+    val isLoading: Boolean = true,
+    val round: Int = 0,
+    val gold: Int = 0,
+    val hp: Int = PlayerState.STARTING_HP,
+    val level: Int = 1,
+    val exp: Int = 0,
+    val expToNext: Int? = null,
+    val slots: List<ShopSlotUi> = emptyList(),
+    val bench: List<BenchUnitUi> = emptyList(),
+    val benchCapacity: Int = PlayerState.BENCH_SIZE,
+    val poolRemaining: Int = 0,
+    val message: String? = null,
+) {
+    val canReroll: Boolean get() = gold >= EconomyRules.REROLL_COST
+    val canBuyExp: Boolean get() = gold >= EconomyRules.BUY_EXP_COST && level < PlayerState.MAX_LEVEL
+    val benchIsFull: Boolean get() = bench.size >= benchCapacity
+}
+
+/**
+ * 로드맵 2단계 화면. 상점에서 유닛을 사 벤치에 올리고, 팔고, 리롤하고, 경험치를 산다.
+ *
+ * 게임 규칙은 전부 [ShopSession] 에 있고 이 클래스는 그 결과를 화면용 데이터로 옮기기만 한다.
+ * 규칙이 ViewModel 로 새어 들어오면 안드로이드 없이 테스트할 수 없게 되므로 경계를 지킨다.
  */
 @HiltViewModel
 class ShopViewModel @Inject constructor(
@@ -55,9 +84,8 @@ class ShopViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ShopUiState())
     val uiState: StateFlow<ShopUiState> = _uiState.asStateFlow()
 
+    private lateinit var session: ShopSession
     private lateinit var pool: UnitPool
-    private lateinit var roller: ShopRoller
-    private var currentOffer: ShopOffer = ShopOffer.EMPTY
     private var skillNamesById: Map<String, String> = emptyMap()
 
     init {
@@ -67,54 +95,99 @@ class ShopViewModel @Inject constructor(
             skillNamesById = repository.skills().associate { it.id to it.name }
 
             pool = UnitPool(units = units)
-            roller = ShopRoller(pool)
-            reroll()
+            session = ShopSession(
+                pool = pool,
+                roller = ShopRoller(pool),
+                initialPlayer = PlayerState(
+                    playerId = "player",
+                    displayName = "나",
+                    isBot = false,
+                ),
+            )
+            session.nextRound()
             _uiState.update { it.copy(isLoading = false) }
+            publish()
         }
     }
 
-    /** 상점을 새로 뽑는다. 이전 상점의 유닛은 풀로 되돌아간다. */
-    fun reroll() {
-        val level = _uiState.value.level
-        currentOffer = roller.roll(level = level, previous = currentOffer)
+    fun buy(slotIndex: Int) = runAction { session.buy(slotIndex) }
+
+    fun sell(instanceId: String) = runAction { session.sell(instanceId) }
+
+    fun reroll() = runAction { session.reroll() }
+
+    fun buyExp() = runAction { session.buyExp() }
+
+    /** 다음 라운드로 넘어간다. 수입과 자동 경험치를 받고 상점이 새로 채워진다. */
+    fun nextRound() {
+        session.nextRound()
+        publish()
+    }
+
+    fun consumeMessage() = _uiState.update { it.copy(message = null) }
+
+    private fun runAction(action: () -> ShopResult) {
+        val result = action()
+        publish(message = (result as? ShopResult.Failure)?.error?.toMessage())
+    }
+
+    private fun publish(message: String? = null) {
+        val player = session.player
         _uiState.update { state ->
             state.copy(
-                slots = currentOffer.toUiSlots(),
+                round = session.round,
+                gold = player.gold,
+                hp = player.hp,
+                level = player.level,
+                exp = player.exp,
+                expToNext = Economy.expToNextLevel(player),
+                slots = buildSlots(),
+                bench = buildBench(),
                 poolRemaining = pool.totalRemaining(),
-                rollCount = state.rollCount + 1,
+                message = message,
             )
         }
     }
 
-    /**
-     * 레벨을 바꾼다. 레벨이 높을수록 고코스트 유닛이 잘 나온다. (명세서 4-1 확률표)
-     *
-     * 1단계에서는 확률표가 실제로 동작하는지 눈으로 확인하려고 수동으로 조절한다.
-     * 경험치로 레벨이 오르는 정식 흐름은 로드맵 2단계에서 붙인다.
-     */
-    fun changeLevel(delta: Int) {
-        val next = (_uiState.value.level + delta).coerceIn(1, PlayerState.MAX_LEVEL)
-        if (next == _uiState.value.level) return
-        _uiState.update { it.copy(level = next) }
-        reroll()
-    }
-
-    private fun ShopOffer.toUiSlots(): List<ShopSlotUi> = slots.map { slot ->
-        val unit = slot.unit
-        if (unit == null) {
-            ShopSlotUi(null, "", 0, "", "", "")
-        } else {
+    private fun buildSlots(): List<ShopSlotUi> {
+        val player = session.player
+        val benchFull = player.bench.size >= PlayerState.BENCH_SIZE
+        return session.offer.slots.mapIndexed { index, slot ->
+            val unit = slot.unit
             ShopSlotUi(
-                unitId = unit.id,
-                name = unit.name,
-                cost = unit.cost,
-                origin = unit.origin.displayName,
-                unitClass = unit.unitClass.displayName,
-                skillName = skillNamesById[unit.skillId].orEmpty(),
+                index = index,
+                unitId = unit?.id,
+                name = unit?.name.orEmpty(),
+                cost = unit?.cost ?: 0,
+                origin = unit?.origin?.displayName.orEmpty(),
+                unitClass = unit?.unitClass?.displayName.orEmpty(),
+                skillName = unit?.let { skillNamesById[it.skillId] }.orEmpty(),
+                purchased = slot.purchased,
+                buyable = unit != null &&
+                    !slot.purchased &&
+                    !benchFull &&
+                    player.gold >= unit.cost,
             )
         }
     }
 
-    /** 상점 슬롯 수. UI 가 자리를 미리 잡을 때 쓴다. */
-    val slotCount: Int get() = EconomyRules.SHOP_SLOT_COUNT
+    private fun buildBench(): List<BenchUnitUi> = session.player.bench.map { unit ->
+        BenchUnitUi(
+            instanceId = unit.instanceId,
+            name = unit.unitDef.name,
+            cost = unit.unitDef.cost,
+            starLevel = unit.starLevel,
+            origin = unit.unitDef.origin.displayName,
+            unitClass = unit.unitDef.unitClass.displayName,
+            sellPrice = Economy.sellPrice(unit),
+        )
+    }
+
+    private fun ShopError.toMessage(): String = when (this) {
+        ShopError.NOT_ENOUGH_GOLD -> "골드가 부족합니다"
+        ShopError.BENCH_FULL -> "벤치가 가득 찼습니다"
+        ShopError.SLOT_UNAVAILABLE -> "이미 구매했거나 빈 칸입니다"
+        ShopError.UNIT_NOT_FOUND -> "해당 유닛을 찾을 수 없습니다"
+        ShopError.MAX_LEVEL -> "이미 최대 레벨입니다"
+    }
 }
