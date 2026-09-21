@@ -1,5 +1,7 @@
 package com.leechanghyun.autobattler.core.model
 
+import kotlin.math.roundToInt
+
 /**
  * 전장/벤치에 올라간 유닛 개체. 명세서 5장 데이터 모델 초안.
  *
@@ -18,11 +20,16 @@ data class BoardUnit(
         require(items.size <= MAX_ITEM_SLOTS) { "유닛당 아이템은 최대 ${MAX_ITEM_SLOTS}개다" }
     }
 
-    /** 성 등급 배율을 적용한 체력. 명세서 4-3: 2성 = 1.8배, 3성 = 3.24배(=1.8^2). */
-    val hp: Int get() = (unitDef.baseHp * starMultiplier(starLevel)).toInt()
+    /**
+     * 성 등급 배율을 적용한 체력. 명세서 4-3: 2성 = 1.8배, 3성 = 3.24배(=1.8^2).
+     *
+     * 버림이 아니라 반올림이다. `1.8f` 는 이진 부동소수로 정확히 표현되지 않아
+     * `1.8f * 1.8f` 가 3.2399998 이 되고, 버리면 3성 체력 3240 이 3239 로 어긋난다.
+     */
+    val hp: Int get() = (unitDef.baseHp * starMultiplier(starLevel)).roundToInt()
 
-    /** 성 등급 배율을 적용한 공격력. */
-    val attack: Int get() = (unitDef.baseAttack * starMultiplier(starLevel)).toInt()
+    /** 성 등급 배율을 적용한 공격력. 반올림 이유는 [hp] 와 같다. */
+    val attack: Int get() = (unitDef.baseAttack * starMultiplier(starLevel)).roundToInt()
 
     val isOnBoard: Boolean get() = position != null
 

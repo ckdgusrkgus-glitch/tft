@@ -15,7 +15,7 @@ import kotlin.random.Random
  *
  * 구매가 골드, 벤치, 상점 칸, 공용 풀 네 곳을 한꺼번에 올바르게 바꾸는지 확인한다.
  */
-class ShopSessionTest {
+class PlanningSessionTest {
 
     private fun session(gold: Int = 20, level: Int = 5, seed: Int = 1): PlanningSession {
         val pool = UnitPool()
