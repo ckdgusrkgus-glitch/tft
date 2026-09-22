@@ -32,8 +32,32 @@
 | Kotlin | 2.0.21 |
 | AGP | 8.7.2 |
 | Gradle Wrapper | 8.11.1 |
-| JDK | 17 |
+| JDK | 17 ~ 21 (아래 주의 참고) |
 | 빌드 스크립트 | Kotlin DSL (`build.gradle.kts`) 로 통일 |
+
+### JDK 는 17~21 을 써야 한다
+
+Gradle 8.11.1 은 **자바 23 까지만** 그 위에서 돌 수 있다. 자바 24 는 Gradle 8.14, 자바 25 는
+Gradle 9.1.0 이 필요하다. ([Gradle 호환성 표](https://docs.gradle.org/current/userguide/compatibility.html))
+
+최근 안드로이드 스튜디오는 자바 25 기반 JBR 을 번들한다. 그대로 두면 빌드가 이렇게 깨진다.
+
+```
+* What went wrong:
+25.0.2
+```
+
+원인 줄이 하나도 없어 메시지만 보고는 알 수 없다. 그래서 `settings.gradle.kts` 가 빌드 시작 전에
+JDK 버전을 먼저 확인하고 무엇을 고쳐야 하는지 알려 준다.
+
+고치는 법은 두 군데를 따로 봐야 한다. **안드로이드 스튜디오의 Gradle JDK 설정은 터미널에 적용되지 않는다.**
+
+| 어디서 빌드하나 | 어디를 바꾸나 |
+|---|---|
+| 안드로이드 스튜디오 | Settings > Build, Execution, Deployment > Build Tools > Gradle > **Gradle JDK** 에서 21 선택. 없으면 같은 자리의 `Download JDK...` 로 받는다 |
+| 터미널 `./gradlew` | 사용자 홈의 `.gradle/gradle.properties` 에 `org.gradle.java.home` 을 적거나 `JAVA_HOME` 을 바꾼다 |
+
+바꾼 뒤에는 `./gradlew --stop` 으로 옛 데몬을 내린다.
 
 ## 기술 스택
 
