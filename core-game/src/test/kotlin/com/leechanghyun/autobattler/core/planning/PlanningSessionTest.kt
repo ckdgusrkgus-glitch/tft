@@ -3,6 +3,7 @@ package com.leechanghyun.autobattler.core.planning
 import com.leechanghyun.autobattler.core.economy.ShopRoller
 import com.leechanghyun.autobattler.core.economy.UnitPool
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.PlayerState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -57,23 +58,39 @@ class PlanningSessionTest {
         assertTrue("산 칸은 구매 표시된다", session.offer.slots[index].purchased)
     }
 
+    /**
+     * 6단계 합성이 붙으면서 "한 번 사면 벤치가 한 칸 찬다"가 더 이상 성립하지 않는다.
+     * 같은 유닛이 세 번째로 들어오면 셋이 하나로 합쳐져 벤치가 오히려 두 칸 비기 때문이다.
+     *
+     * 그래서 구매 횟수를 벤치 칸 수와 직접 비교하지 않고, **차이를 합성 횟수로 정확히 설명**한다.
+     * 합성 한 번이 벤치에서 정확히 두 칸을 걷어 가므로 등식이 딱 맞아떨어져야 한다.
+     */
     @Test
     fun `벤치를 가득 채울 때까지 연속으로 살 수 있다`() {
         val session = session(gold = 100)
         session.nextRound()
 
         var bought = 0
+        var merges = 0
         while (session.player.bench.size < PlayerState.BENCH_SIZE) {
             val index = session.firstBuyableIndex()
             if (index < 0) {
                 session.reroll()
                 continue
             }
-            if (session.buy(index).isSuccess) bought++
+            val result = session.buy(index)
+            if (result is PlanningResult.Success) {
+                bought++
+                merges += result.starUps.size
+            }
         }
 
         assertEquals(PlayerState.BENCH_SIZE, session.player.bench.size)
-        assertEquals(PlayerState.BENCH_SIZE, bought)
+        assertEquals(
+            "산 횟수 = 벤치 칸 수 + 합성이 걷어 간 칸 수",
+            bought,
+            session.player.bench.size + merges * (BoardUnit.COPIES_PER_STAR_UP - 1),
+        )
         assertEquals(
             "벤치의 개체 id 는 모두 다르다",
             PlayerState.BENCH_SIZE,

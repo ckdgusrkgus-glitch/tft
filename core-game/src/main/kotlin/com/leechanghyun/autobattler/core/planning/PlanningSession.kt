@@ -38,7 +38,17 @@ enum class PlanningError {
 
 /** 준비 단계 조작 결과. 실패하면 상태가 전혀 바뀌지 않는다. */
 sealed interface PlanningResult {
-    data class Success(val unit: BoardUnit? = null, val goldSpent: Int = 0) : PlanningResult
+    /**
+     * @param starUps 이 조작이 일으킨 합성. 6단계부터 [PlanningSession.buy] 만 채운다.
+     *   세션에 마지막 값을 들고 있지 않고 결과에 실어 보내는 이유는, 들고 있으면 다음 판매나
+     *   리롤 뒤에도 남아 화면이 "2성 달성"을 두 번 띄우기 때문이다.
+     */
+    data class Success(
+        val unit: BoardUnit? = null,
+        val goldSpent: Int = 0,
+        val starUps: List<StarUpEvent> = emptyList(),
+    ) : PlanningResult
+
     data class Failure(val error: PlanningError) : PlanningResult
 
     val isSuccess: Boolean get() = this is Success
@@ -56,7 +66,7 @@ sealed interface PlanningResult {
  * 스레드 안전하지 않으며, 한 플레이어의 조작은 단일 코루틴에서 순차 처리한다는 전제다.
  *
  * 구매한 유닛은 일단 벤치로 가고, [moveToBoard] 로 보드에 올린다.
- * 자동 합성은 로드맵 6단계에서 붙는다.
+ * 같은 유닛 3개가 모이면 [StarUp] 이 그 자리에서 합성한다(6단계).
  */
 class PlanningSession(
     private val pool: UnitPool,
@@ -104,6 +114,13 @@ class PlanningSession(
      *
      * 로드맵 2단계 완료 기준인 "유닛 구매 → 벤치 배치"가 이 함수다.
      * 상점에 뜬 시점에 이미 풀에서 빠졌으므로 구매 자체는 풀을 건드리지 않는다.
+     *
+     * 6단계부터는 벤치에 올린 직후 [StarUp] 이 돌아 같은 유닛 3개가 모이면 자동 합성된다.
+     * 벤치 정원 검사는 합성 **전** 기준이다. 세 번째 장을 살 때 벤치가 꽉 차 있으면 살 수 없고,
+     * 원작처럼 "합성될 예정이니 봐준다"는 예외는 명세서에 없어 두지 않았다. 11단계 재검토 대상이다.
+     *
+     * 반환하는 [PlanningResult.Success.unit] 은 **합성까지 끝난 뒤의 유닛**이다. 방금 산 1성이
+     * 그 자리에서 2성에 먹혔다면 그 2성을 돌려준다. 사라진 개체를 돌려주면 화면이 없는 유닛을 가리킨다.
      */
     fun buy(slotIndex: Int): PlanningResult {
         val slot = offer.slots.getOrNull(slotIndex) ?: return PlanningResult.Failure(PlanningError.SLOT_UNAVAILABLE)
@@ -118,7 +135,13 @@ class PlanningSession(
             bench = player.bench + bought,
         )
         offer = offer.markPurchased(slotIndex)
-        return PlanningResult.Success(unit = bought, goldSpent = unitDef.cost)
+
+        val starUp = StarUp.apply(player)
+        player = starUp.player
+
+        val finalId = starUp.trace(bought.instanceId)
+        val finalUnit = (player.bench + player.board).firstOrNull { it.instanceId == finalId } ?: bought
+        return PlanningResult.Success(unit = finalUnit, goldSpent = unitDef.cost, starUps = starUp.events)
     }
 
     /**
