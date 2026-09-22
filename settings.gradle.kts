@@ -29,11 +29,12 @@ val runningJavaMajor = System.getProperty("java.version").orEmpty()
     .toIntOrNull()
     ?: 0
 
-check(runningJavaMajor in 17..23) {
+check(runningJavaMajor in 17..21) {
     """
     |이 프로젝트는 JDK 17~21 에서 빌드된다. 지금 Gradle 은 JDK ${System.getProperty("java.version")} 위에서 돌고 있다.
     |
-    |Gradle 8.11.1 은 자바 23 까지만 지원한다. 자바 24 는 Gradle 8.14, 자바 25 는 Gradle 9.1.0 이 필요하다.
+    |자바 24 이상은 Gradle 8.11.1 이 아예 못 받는다(자바 24 는 Gradle 8.14, 자바 25 는 9.1.0 필요).
+    |22·23 은 Gradle 은 받지만 이 프로젝트가 검증한 건 LTS 인 17 과 21 뿐이다.
     |
     |고치는 법 (JDK 21 권장):
     |  안드로이드 스튜디오: Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK
