@@ -1,6 +1,7 @@
 package com.leechanghyun.autobattler.core.synergy
 
 import com.leechanghyun.autobattler.core.masterdata.MasterData
+import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,6 +23,49 @@ class UnitBuffsTest {
         assertEquals(15, sum.hpFlat)
         assertEquals(0.3f, sum.attackPercent, 1e-6f)
         assertEquals("방어력이 점수인 이유가 이것이다", 35, sum.armorFlat)
+    }
+
+    @Test
+    fun `모든 보정 항목이 빠짐없이 더해진다`() {
+        // [UnitBuffs.plus] 에 줄 하나를 빠뜨리면 그 항목만 조용히 0 이 된다. 시너지나 아이템 하나가
+        // 통째로 무효가 되는데 기존 테스트는 전부 통과한다. 항목이 늘어날 때마다 생기는 사고라
+        // 반사성 검사(a + NONE == a)로 막는다. 항목이 하나라도 0 이면 그 항목은 검사되지 않으므로
+        // 리플렉션으로 "전부 0 이 아니다"까지 강제한다.
+        val all = UnitBuffs(
+            hpFlat = 11,
+            hpPercent = 0.12f,
+            attackFlat = 13,
+            attackPercent = 0.14f,
+            skillPowerFlat = 15,
+            skillPowerPercent = 0.16f,
+            attackSpeedPercent = 0.17f,
+            armorFlat = 18,
+            shieldPercentOfMaxHp = 0.19f,
+            shieldPeriodTicks = 20,
+            chainChargePerAttack = 21,
+            chainDamage = 22,
+            chainTargets = 23,
+            startingManaFlat = 24,
+        )
+
+        val fields = UnitBuffs::class.java.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }
+        assertEquals(
+            "UnitBuffs 에 항목을 더했으면 위 all 에도 0 이 아닌 값을 넣어라",
+            14,
+            fields.size,
+        )
+        fields.forEach { field ->
+            field.isAccessible = true
+            val isDefault = when (val value = field.get(all)) {
+                is Int -> value == 0
+                is Float -> value == 0f
+                else -> throw AssertionError("${field.name} 타입은 이 테스트가 모른다: ${value?.javaClass}")
+            }
+            assertFalse("${field.name} 이 0 이면 아래 단언이 그 항목을 검사하지 못한다", isDefault)
+        }
+
+        assertEquals("plus 에서 빠진 항목이 있으면 여기서 0 이 되어 어긋난다", all, all + UnitBuffs.NONE)
+        assertEquals(all, UnitBuffs.NONE + all)
     }
 
     @Test

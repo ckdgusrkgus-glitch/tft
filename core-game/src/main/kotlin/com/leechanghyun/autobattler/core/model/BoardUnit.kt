@@ -6,7 +6,9 @@ import kotlin.math.roundToInt
  * 전장/벤치에 올라간 유닛 개체. 명세서 5장 데이터 모델 초안.
  *
  * @param position 보드 좌표. 벤치에 있으면 null.
- * @param starLevel 1..3 성. 합성 로직은 로드맵 6단계에서 붙인다.
+ * @param starLevel 1..3 성. 합성은 [com.leechanghyun.autobattler.core.planning.StarUp] 이 한다(6단계).
+ * @param items 장착한 아이템. 최대 [MAX_ITEM_SLOTS] 개. 장착/해제는
+ *   [com.leechanghyun.autobattler.core.planning.PlanningSession] 이 한다(7단계).
  */
 data class BoardUnit(
     val instanceId: String,
@@ -32,6 +34,9 @@ data class BoardUnit(
     val attack: Int get() = (unitDef.baseAttack * starMultiplier(starLevel)).roundToInt()
 
     val isOnBoard: Boolean get() = position != null
+
+    /** 아이템을 더 낄 자리가 남았는지. 7단계 장착 경로가 확인한다. */
+    val hasFreeItemSlot: Boolean get() = items.size < MAX_ITEM_SLOTS
 
     /**
      * 이 개체가 소모한 풀 카드 장수. 1성 1장, 2성 3장, 3성 9장이다.

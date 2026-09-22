@@ -8,8 +8,8 @@ import kotlin.math.roundToInt
  * 4단계 전투 시뮬레이터가 "시너지 버프는 5단계, 아이템 효과는 7단계에서 이 계산에 끼워 넣는다"고
  * 예약해 둔 자리다. 그래서 5단계가 쓰지 않는 가산(flat) 항도 처음부터 둔다.
  * 명세서 4-5 의 컴포넌트 9종(힘의흔장 AD+, 지혜의흔장 AP+, 활력의흔장 HP+, 신속의흔장 공속+,
- * 수호의흔장 방어+, 저항의흔장 마저+)이 7단계에 그대로 이 필드들로 합류하고, 9단계 증강도 같다.
- * 시너지 전용 구조로 만들면 7단계에서 똑같은 것을 한 번 더 만들게 된다.
+ * 수호의흔장 방어+, 저항의흔장 마저+)이 7단계에 실제로 이 필드들로 합류했고, 9단계 증강도 같다.
+ * 아이템 → 이 타입의 환산은 [com.leechanghyun.autobattler.core.items.ItemStats] 한 곳에서만 한다.
  *
  * 기본값이 전부 0 이라 기존 전투 코드와 테스트는 한 글자도 고치지 않고 그대로 통과한다.
  *
@@ -19,9 +19,15 @@ import kotlin.math.roundToInt
  * [armorFlat] 하나에 쏟아져 들어가고, 점수를 감소율로 바꾸는 변환은
  * [com.leechanghyun.autobattler.core.combat.CombatRules.damageAfterArmor] 한 곳에서만 한다.
  *
- * 방어력과 마법저항력은 5단계에서 **한 풀로 합친다.** 기계공학자가 둘을 항상 함께 올리고
- * (명세서 4-4), 피해에 종류 구분이 없어 어떤 테스트도 둘을 구별할 수 없기 때문이다.
- * 7단계에서 수호의흔장과 저항의흔장이 실제로 달라야 할 때 피해 종류를 도입해 쪼갠다.
+ * 방어력과 마법저항력은 **한 풀로 합친다.** 기계공학자가 둘을 항상 함께 올리고(명세서 4-4),
+ * 피해에 종류 구분이 없어 어떤 테스트도 둘을 구별할 수 없기 때문이다.
+ *
+ * 7단계에서 수호의흔장(ARMOR)과 저항의흔장(MAGIC_RESIST)이 합류할 때도 쪼개지 않았다.
+ * 쪼개려면 먼저 모든 피해에 물리/마법 종류를 붙여야 하는데, 그것은 명세서 4-6 전투 규칙과
+ * 4단계 시뮬레이터를 통째로 손보는 일이고 7단계 완료 기준("컴포넌트 2개 → 완성템 조합, 유닛 장착")과
+ * 아무 상관이 없다. 지금은 두 컴포넌트가 같은 값을 주므로 게임상 완전히 동등하고,
+ * `ItemStatsTest.방어력과 마법저항력은 아직 한 풀이다` 가 이 결정이 살아 있음을 감시한다.
+ * 피해 종류를 도입하는 것은 11단계 재검토 대상이다.
  */
 data class UnitBuffs(
     val hpFlat: Int = 0,
@@ -43,6 +49,13 @@ data class UnitBuffs(
     val chainDamage: Int = 0,
     /** 연쇄 번개가 튀는 대상 수. 주 대상은 제외한다. */
     val chainTargets: Int = 0,
+    /**
+     * 전투 시작 마나 가산. 7단계 마나의흔장 계열.
+     *
+     * 스킬 최대 마나를 넘겨 시작할 수는 없다. 상한 적용은
+     * [com.leechanghyun.autobattler.core.combat.CombatUnit.mana] 초기값 한 곳에서만 한다.
+     */
+    val startingManaFlat: Int = 0,
 ) {
     /**
      * 항목별 합산.
@@ -63,6 +76,7 @@ data class UnitBuffs(
         chainChargePerAttack = chainChargePerAttack + other.chainChargePerAttack,
         chainDamage = chainDamage + other.chainDamage,
         chainTargets = chainTargets + other.chainTargets,
+        startingManaFlat = startingManaFlat + other.startingManaFlat,
     )
 
     val hasShield: Boolean get() = shieldPeriodTicks > 0 && shieldPercentOfMaxHp > 0f

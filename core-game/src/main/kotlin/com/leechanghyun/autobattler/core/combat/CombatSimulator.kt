@@ -331,9 +331,10 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
         /**
          * 양쪽 보드와 각자의 시너지로 전투를 준비한다. 5단계.
          *
-         * 여기가 버프의 이음매다. 이 함수만이 한 팀의 보드 전체를 한 번에 보고, 벤치를 빼는 일은
-         * 이미 [CombatUnit.from] 에서 끝났으며, id 접두어를 붙이려고 어차피 유닛을 다시 만들고 있다.
-         * 그 재생성이 그대로 버프 주입 지점이 된다.
+         * 여기가 **팀 단위** 버프의 이음매다. 이 함수만이 한 팀의 보드 전체를 한 번에 보기 때문이다.
+         * 벤치 제외, 좌표 변환, id 접두어, 그리고 7단계부터는 장착 아이템 합산까지 전부
+         * [CombatUnit.from] 안에서 끝난다. 유닛을 두 번 만들던 옛 구현은 아이템이 붙은 뒤
+         * "한 번 만들고 다시 베껴 쓰면서 items 를 빠뜨리는" 사고가 나기 쉬워 없앴다.
          *
          * 시너지를 넘기지 않으면 4단계와 완전히 같은 전투가 된다. 보드에서 **자동으로** 시너지를
          * 계산하지 않는 것은 의도다. 기존 호출부의 동작이 조용히 바뀌면 안 된다.
@@ -348,18 +349,14 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
             enemySynergy: SynergyState = SynergyState.NONE,
         ): CombatSetup {
             fun build(board: List<BoardUnit>, team: CombatTeam, synergy: SynergyState) =
-                board.mapNotNull { CombatUnit.from(it, team) }
-                    .map { unit ->
-                        CombatUnit(
-                            id = "${team.name.lowercase()}_${unit.id}",
-                            team = unit.team,
-                            def = unit.def,
-                            skill = unit.skill,
-                            starLevel = unit.starLevel,
-                            position = unit.position,
-                            buffs = synergy.combat.forUnit(unit.def),
-                        )
-                    }
+                board.mapNotNull {
+                    CombatUnit.from(
+                        boardUnit = it,
+                        team = team,
+                        externalBuffs = synergy.combat.forUnit(it.unitDef),
+                        idPrefix = team.name.lowercase(),
+                    )
+                }
 
             return CombatSetup(
                 units = build(playerBoard, CombatTeam.PLAYER, playerSynergy) +

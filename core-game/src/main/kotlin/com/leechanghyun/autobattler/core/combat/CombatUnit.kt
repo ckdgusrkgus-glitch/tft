@@ -1,5 +1,6 @@
 package com.leechanghyun.autobattler.core.combat
 
+import com.leechanghyun.autobattler.core.items.ItemStats
 import com.leechanghyun.autobattler.core.masterdata.MasterData
 import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.HexCoord
@@ -112,7 +113,14 @@ class CombatUnit(
     var hp: Int = maxHp
         private set
 
-    var mana: Int = skill.startingMana
+    /**
+     * 현재 마나. 시작값은 스킬 기본 시작 마나에 [UnitBuffs.startingManaFlat] 을 더한 값이고,
+     * 스킬 소모 마나를 넘지 않는다. 마나의흔장 계열이 여기로 들어온다.
+     *
+     * 상한을 여기서 자르는 이유는 [gainMana] 와 규칙을 하나로 맞추기 위해서다. 자르지 않으면
+     * 마나 아이템을 잔뜩 낀 유닛이 `mana > manaCost` 로 시작해 `spendMana` 가 그 초과분을 버린다.
+     */
+    var mana: Int = (skill.startingMana + buffs.startingManaFlat).coerceAtMost(skill.manaCost)
         private set
 
     /** 다음 공격까지 남은 틱. */
@@ -203,17 +211,30 @@ class CombatUnit(
          * 배치된 유닛을 전투 유닛으로 옮긴다.
          *
          * 보드에 올라가지 않은(벤치) 유닛은 전투에 참가하지 않으므로 null 을 돌려준다.
+         *
+         * **장착 아이템은 여기서 자동으로 합류한다.** 7단계에서 아이템 환산을 이 한 곳에 두지 않으면
+         * 호출부마다 [ItemStats.buffsOf] 를 부르는 것을 잊을 수 있고, 잊어도 전투는 정상으로 보인다.
+         *
+         * @param externalBuffs 시너지(5단계)·증강(9단계)처럼 유닛 바깥에서 오는 보정.
+         *   아이템 보정은 여기 넣지 않는다. [BoardUnit.items] 에서 직접 읽는다.
+         * @param idPrefix 개체 id 앞에 붙일 진영 접두어. 양 팀의 개체 id 가 겹칠 수 있어서 필요하다.
+         *   비어 있으면 [BoardUnit.instanceId] 를 그대로 쓴다.
          */
-        fun from(boardUnit: BoardUnit, team: CombatTeam, buffs: UnitBuffs = UnitBuffs.NONE): CombatUnit? {
+        fun from(
+            boardUnit: BoardUnit,
+            team: CombatTeam,
+            externalBuffs: UnitBuffs = UnitBuffs.NONE,
+            idPrefix: String = "",
+        ): CombatUnit? {
             val placement = boardUnit.position ?: return null
             return CombatUnit(
-                id = boardUnit.instanceId,
+                id = if (idPrefix.isEmpty()) boardUnit.instanceId else "${idPrefix}_${boardUnit.instanceId}",
                 team = team,
                 def = boardUnit.unitDef,
                 skill = MasterData.skill(boardUnit.unitDef.skillId),
                 starLevel = boardUnit.starLevel,
                 position = CombatField.toField(placement, team),
-                buffs = buffs,
+                buffs = externalBuffs + ItemStats.buffsOf(boardUnit.items),
             )
         }
     }
