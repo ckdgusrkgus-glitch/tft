@@ -6,7 +6,9 @@ import com.leechanghyun.autobattler.core.economy.ShopOffer
 import com.leechanghyun.autobattler.core.economy.ShopRoller
 import com.leechanghyun.autobattler.core.economy.UnitPool
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.core.masterdata.MasterData
 import com.leechanghyun.autobattler.core.model.HexCoord
+import com.leechanghyun.autobattler.core.model.ItemDef
 import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.PlayerState
 import com.leechanghyun.autobattler.core.synergy.SynergyEngine
@@ -34,11 +36,24 @@ enum class PlanningError {
 
     /** 보드에 올릴 수 있는 수(= 레벨)를 이미 채웠다. */
     BOARD_FULL,
+
+    /** 가방이나 유닛의 해당 아이템 칸이 비어 있다. */
+    ITEM_NOT_FOUND,
+
+    /** 유닛의 아이템 칸 3개가 이미 찼다. */
+    ITEM_SLOTS_FULL,
+
+    /** 컴포넌트 2개가 아니거나 조합식이 없다. */
+    ITEM_NOT_COMBINABLE,
+
+    /** 가방의 같은 칸 하나를 두 번 골랐다. */
+    SAME_ITEM_SLOT,
 }
 
 /** 준비 단계 조작 결과. 실패하면 상태가 전혀 바뀌지 않는다. */
 sealed interface PlanningResult {
     /**
+     * @param item 이 조작이 만들었거나 옮긴 아이템. 7단계 조합/장착/해제가 채운다.
      * @param starUps 이 조작이 일으킨 합성. 6단계부터 [PlanningSession.buy] 만 채운다.
      *   세션에 마지막 값을 들고 있지 않고 결과에 실어 보내는 이유는, 들고 있으면 다음 판매나
      *   리롤 뒤에도 남아 화면이 "2성 달성"을 두 번 띄우기 때문이다.
@@ -47,6 +62,7 @@ sealed interface PlanningResult {
         val unit: BoardUnit? = null,
         val goldSpent: Int = 0,
         val starUps: List<StarUpEvent> = emptyList(),
+        val item: ItemDef? = null,
     ) : PlanningResult
 
     data class Failure(val error: PlanningError) : PlanningResult
@@ -67,6 +83,7 @@ sealed interface PlanningResult {
  *
  * 구매한 유닛은 일단 벤치로 가고, [moveToBoard] 로 보드에 올린다.
  * 같은 유닛 3개가 모이면 [StarUp] 이 그 자리에서 합성한다(6단계).
+ * 아이템은 [grantItems] 로 가방에 들어오고, [combineItems] 로 합치고, [equip] 으로 유닛에 끼운다(7단계).
  */
 class PlanningSession(
     private val pool: UnitPool,
@@ -148,6 +165,8 @@ class PlanningSession(
      * 벤치나 보드의 유닛을 판다. 골드를 돌려받고 소모했던 카드가 공용 풀로 돌아간다.
      *
      * 2성/3성 유닛은 각각 3장/9장을 한 번에 되돌린다.
+     * 끼워 둔 아이템은 [PlayerState.itemInventory] 로 돌아온다(7단계). 유닛을 판다고 해서
+     * 아이템까지 잃을 이유가 없고, 원작도 그렇다.
      */
     fun sell(instanceId: String): PlanningResult {
         val unit = (player.bench + player.board).firstOrNull { it.instanceId == instanceId }
@@ -160,9 +179,99 @@ class PlanningSession(
             gold = player.gold + price,
             bench = player.bench.filterNot { it.instanceId == instanceId },
             board = player.board.filterNot { it.instanceId == instanceId },
+            // 7단계: 끼워 둔 아이템은 가방으로 돌아온다. 유닛과 함께 사라지면 되돌릴 방법이 없다.
+            itemInventory = player.itemInventory + unit.items,
         )
         return PlanningResult.Success(unit = unit, goldSpent = -price)
     }
+
+    /**
+     * 아이템을 가방에 넣는다. 로드맵 7단계.
+     *
+     * 게임 안에서 아이템이 **생기는 유일한 문**이다. 10단계 크립 라운드 드랍과 9단계 증강 보상이
+     * 전부 여기로 들어온다. 조합·장착은 이미 가진 것을 옮길 뿐이라 총량을 늘리지 않는다.
+     * 그래서 `아이템 총량은 조합과 장착으로 변하지 않는다` 테스트가 이 함수만 창구 밖에 둔다.
+     *
+     * 실패할 수 없으므로 [PlanningResult] 가 아니라 새 상태를 그대로 돌려준다.
+     */
+    fun grantItems(items: List<ItemDef>): PlayerState {
+        player = player.copy(itemInventory = player.itemInventory + items)
+        return player
+    }
+
+    /** 아이템 1개짜리 [grantItems]. */
+    fun grantItem(item: ItemDef): PlayerState = grantItems(listOf(item))
+
+    /**
+     * 가방의 컴포넌트 2개를 합쳐 완성 아이템 1개로 만든다. 명세서 4-5, 로드맵 7단계 완료 기준의 앞 절반.
+     *
+     * **가방 안에서만** 한다. 유닛에 끼운 상태로 자동 조합하지 않는 것은 의도다. 자동 조합은
+     * "컴포넌트를 둘 끼웠더니 원하지 않는 완성템이 됐다"를 되돌릴 수 없게 만든다. 유닛에 낀 것을
+     * 합치고 싶으면 [unequip] 으로 내린 뒤 여기서 합쳐 다시 [equip] 한다.
+     *
+     * 가방에 같은 컴포넌트가 여러 개 있을 수 있으므로 **아이템 id 가 아니라 칸 번호**로 고른다.
+     * 검사 순서는 칸 번호 → 같은 칸 → 조합식이다. 잘못된 칸 번호가 "조합할 수 없다"로 보고되면
+     * 화면이 엉뚱한 안내를 하기 때문이다.
+     */
+    fun combineItems(firstIndex: Int, secondIndex: Int): PlanningResult {
+        val first = player.itemInventory.getOrNull(firstIndex)
+            ?: return PlanningResult.Failure(PlanningError.ITEM_NOT_FOUND)
+        val second = player.itemInventory.getOrNull(secondIndex)
+            ?: return PlanningResult.Failure(PlanningError.ITEM_NOT_FOUND)
+        if (firstIndex == secondIndex) return PlanningResult.Failure(PlanningError.SAME_ITEM_SLOT)
+
+        // 완성 아이템끼리 고르거나 조합식이 없으면 null 이다.
+        val combined = MasterData.combine(first.id, second.id)
+            ?: return PlanningResult.Failure(PlanningError.ITEM_NOT_COMBINABLE)
+
+        player = player.copy(
+            itemInventory = player.itemInventory.filterIndexed { index, _ ->
+                index != firstIndex && index != secondIndex
+            } + combined,
+        )
+        return PlanningResult.Success(item = combined)
+    }
+
+    /**
+     * 가방 [inventoryIndex] 칸의 아이템을 유닛에 끼운다. 로드맵 7단계 완료 기준의 뒤 절반.
+     *
+     * 벤치와 보드 어느 쪽이든 끼울 수 있다. 준비 단계에는 둘 사이를 자유롭게 오가므로 보드에만
+     * 허용하면 "올렸다 내렸다 할 때마다 아이템이 막힌다"가 된다.
+     *
+     * 컴포넌트도 그대로 끼울 수 있다. 칸은 아이템 **개수**를 세지 조합 단계를 보지 않는다.
+     */
+    fun equip(instanceId: String, inventoryIndex: Int): PlanningResult {
+        val unit = findUnit(instanceId) ?: return PlanningResult.Failure(PlanningError.UNIT_NOT_FOUND)
+        val item = player.itemInventory.getOrNull(inventoryIndex)
+            ?: return PlanningResult.Failure(PlanningError.ITEM_NOT_FOUND)
+        if (!unit.hasFreeItemSlot) return PlanningResult.Failure(PlanningError.ITEM_SLOTS_FULL)
+
+        val equipped = unit.copy(items = unit.items + item)
+        player = replaceUnit(equipped).copy(
+            itemInventory = player.itemInventory.filterIndexed { index, _ -> index != inventoryIndex },
+        )
+        return PlanningResult.Success(unit = equipped, item = item)
+    }
+
+    /** 유닛의 [itemSlotIndex] 번 아이템을 가방으로 내린다. 되돌릴 수 있어야 조합을 마음 놓고 실험한다. */
+    fun unequip(instanceId: String, itemSlotIndex: Int): PlanningResult {
+        val unit = findUnit(instanceId) ?: return PlanningResult.Failure(PlanningError.UNIT_NOT_FOUND)
+        val item = unit.items.getOrNull(itemSlotIndex)
+            ?: return PlanningResult.Failure(PlanningError.ITEM_NOT_FOUND)
+
+        val stripped = unit.copy(items = unit.items.filterIndexed { index, _ -> index != itemSlotIndex })
+        player = replaceUnit(stripped).copy(itemInventory = player.itemInventory + item)
+        return PlanningResult.Success(unit = stripped, item = item)
+    }
+
+    private fun findUnit(instanceId: String): BoardUnit? =
+        (player.bench + player.board).firstOrNull { it.instanceId == instanceId }
+
+    /** 같은 [BoardUnit.instanceId] 를 가진 개체를 벤치든 보드든 있는 자리에서 바꿔 끼운다. */
+    private fun replaceUnit(updated: BoardUnit): PlayerState = player.copy(
+        bench = player.bench.map { if (it.instanceId == updated.instanceId) updated else it },
+        board = player.board.map { if (it.instanceId == updated.instanceId) updated else it },
+    )
 
     /** 경험치를 산다. 명세서 4-1: 4골드로 경험치 4. */
     fun buyExp(): PlanningResult {

@@ -304,5 +304,9 @@ class ShopViewModel @Inject constructor(
         PlanningError.MAX_LEVEL -> "이미 최대 레벨입니다"
         PlanningError.INVALID_COORD -> "보드 밖입니다"
         PlanningError.BOARD_FULL -> "레벨을 올려야 더 배치할 수 있습니다"
+        PlanningError.ITEM_NOT_FOUND -> "해당 아이템을 찾을 수 없습니다"
+        PlanningError.ITEM_SLOTS_FULL -> "아이템 칸이 가득 찼습니다"
+        PlanningError.ITEM_NOT_COMBINABLE -> "조합할 수 없는 아이템입니다"
+        PlanningError.SAME_ITEM_SLOT -> "서로 다른 아이템 두 개를 골라야 합니다"
     }
 }
