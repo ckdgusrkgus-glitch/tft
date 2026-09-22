@@ -9,7 +9,7 @@ import com.leechanghyun.autobattler.core.model.PlayerState
  *
  * @param consumedInstanceIds 사라진 세 개체. [resultInstanceId] 도 이 안에 들어 있다.
  *   살아남은 개체가 id 를 물려받기 때문이다.
- * @param returnedItems 자리가 모자라 가방으로 간 아이템. 7단계 전에는 항상 비어 있다.
+ * @param returnedItems 아이템 칸이 모자라 [PlayerState.itemInventory] 로 간 아이템.
  */
 data class StarUpEvent(
     val unitDefId: String,
@@ -67,9 +67,12 @@ data class StarUpResult(
  * `카드 총량은 어떤 조작에도 변하지 않는다` 테스트가 이 성질을 지킨다.
  *
  * ### 아이템
- * 7단계 전에는 유닛에 아이템을 끼우는 경로가 아예 없어 항상 빈 목록이다. 그래도 소모된 유닛의
- * 아이템을 버리지 않고 살아남은 유닛에 [BoardUnit.MAX_ITEM_SLOTS] 까지 옮긴 뒤 넘치는 만큼
- * [PlayerState.itemInventory] 로 돌린다. 7단계에서 장착이 생길 때 조용히 사라지는 사고를 막는다.
+ * 소모된 유닛의 아이템을 버리지 않고 살아남은 유닛에 [BoardUnit.MAX_ITEM_SLOTS] 까지 옮긴 뒤
+ * 넘치는 만큼 [PlayerState.itemInventory] 로 돌린다. 6단계에 미리 넣어 둔 경로이고,
+ * 7단계에서 장착이 생기면서 실제로 아이템이 흐르기 시작했다.
+ *
+ * 남기는 우선순위는 **살아남는 유닛의 것부터**, 그 다음 소모되는 유닛의 것을 목록 순서대로다.
+ * 명세서에 규칙이 없어 정했고, 넘칠 때 무엇이 가방으로 가는지가 결정론적이어야 하기 때문이다.
  */
 object StarUp {
 

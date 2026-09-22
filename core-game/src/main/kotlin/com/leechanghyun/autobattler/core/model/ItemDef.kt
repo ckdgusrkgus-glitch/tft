@@ -21,7 +21,10 @@ enum class StatType(val displayName: String) {
  * @param isComponent true 면 기본 아이템(컴포넌트), false 면 컴포넌트 2개를 합친 완성 아이템이다.
  * @param recipe 완성 아이템일 때 재료 컴포넌트 2개의 id. 컴포넌트면 비어 있다.
  * @param description 완성 아이템의 고유 효과 설명. 컴포넌트는 빈 문자열이다.
- * @param effectId 전투 로직이 고유 효과를 분기할 때 쓰는 키. 실제 효과 구현은 로드맵 7단계에서 붙인다.
+ * @param effectId 전투 로직이 고유 효과를 분기할 때 쓰는 키.
+ *   **아직 이 값을 읽는 코드가 어디에도 없다.** 7단계는 스탯 합산까지만 했고, 명세서 4-5 가
+ *   효과 문구만 주고 수치를 주지 않아 지금 구현하면 45종이 전부 임의 값이 된다. 11단계 밸런스에서
+ *   수치와 함께 붙인다. `ItemStatsTest`/`ItemCombatTest` 의 감시 테스트가 이 사실을 지킨다.
  */
 data class ItemDef(
     val id: String,

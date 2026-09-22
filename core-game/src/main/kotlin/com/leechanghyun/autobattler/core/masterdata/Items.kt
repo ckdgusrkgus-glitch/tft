@@ -9,8 +9,11 @@ import com.leechanghyun.autobattler.core.model.StatType
  * 스탯 증가량은 명세서에 없어 임의 초기값으로 채웠고 11단계에서 조정한다.
  * 비율 스탯(공격속도/치명타)은 0.15 == +15% 로 읽는다.
  *
- * 완성 아이템(컴포넌트 2개 조합) 목록은 명세서가 이름을 정의하지 않았으므로
- * 로드맵 7단계에서 조합 매트릭스와 함께 채운다. 지금은 컴포넌트만 마스터 데이터에 넣는다.
+ * 완성 아이템 45종은 [COMPLETED_ITEM_DEFS] 에 있고, 조합은
+ * [MasterData.combine], 전투 반영은 [com.leechanghyun.autobattler.core.items.ItemStats] 가 한다(7단계).
+ *
+ * 9종 중 **관통의흔장(치명타)과 재생의흔장(체력 재생) 둘은 아직 전투에 닿지 않는다.**
+ * 전투에 난수가 없고 틱 회복 장치도 없기 때문이며, 이유와 감시 테스트는 `ItemStats` 문서에 있다.
  */
 internal val ITEM_COMPONENT_DEFS: List<ItemDef> = listOf(
     ItemDef(
