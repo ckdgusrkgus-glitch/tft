@@ -1,16 +1,21 @@
 package com.leechanghyun.autobattler.core.planning
 
+import com.leechanghyun.autobattler.core.augment.AugmentRoller
+import com.leechanghyun.autobattler.core.augment.AugmentRules
 import com.leechanghyun.autobattler.core.board.HexBoard
 import com.leechanghyun.autobattler.core.economy.Economy
 import com.leechanghyun.autobattler.core.economy.ShopOffer
 import com.leechanghyun.autobattler.core.economy.ShopRoller
 import com.leechanghyun.autobattler.core.economy.UnitPool
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.core.masterdata.isAugmentRound
 import com.leechanghyun.autobattler.core.masterdata.MasterData
+import com.leechanghyun.autobattler.core.model.AugmentDef
 import com.leechanghyun.autobattler.core.model.HexCoord
 import com.leechanghyun.autobattler.core.model.ItemDef
 import com.leechanghyun.autobattler.core.model.BoardUnit
 import com.leechanghyun.autobattler.core.model.PlayerState
+import com.leechanghyun.autobattler.core.model.StageRound
 import com.leechanghyun.autobattler.core.synergy.SynergyEngine
 import com.leechanghyun.autobattler.core.synergy.SynergyState
 
@@ -48,6 +53,12 @@ enum class PlanningError {
 
     /** 가방의 같은 칸 하나를 두 번 골랐다. */
     SAME_ITEM_SLOT,
+
+    /** 지금은 증강을 고르는 라운드가 아니다. */
+    NO_AUGMENT_OFFER,
+
+    /** 이번에 제시된 후보 3개에 없는 증강이다. */
+    AUGMENT_NOT_OFFERED,
 }
 
 /** 준비 단계 조작 결과. 실패하면 상태가 전혀 바뀌지 않는다. */
@@ -89,6 +100,7 @@ class PlanningSession(
     private val pool: UnitPool,
     private val roller: ShopRoller,
     initialPlayer: PlayerState,
+    private val augmentRoller: AugmentRoller = AugmentRoller(),
 ) {
     var player: PlayerState = initialPlayer
         private set
@@ -100,7 +112,50 @@ class PlanningSession(
     var round: Int = 0
         private set
 
+    /**
+     * 지금 고르기를 기다리는 증강 후보 3개. 증강 라운드가 아니면 null.
+     *
+     * [chooseAugment] 가 성공하면 다시 null 이 된다.
+     */
+    var pendingAugments: List<AugmentDef>? = null
+        private set
+
+    /** 이번 라운드에 이미 쓴 무료 리롤 횟수. [nextRound] 마다 0 으로 돌아간다. */
+    private var freeRerollsUsed: Int = 0
+
     private var instanceCounter = 0
+
+    /**
+     * "2-1" 같은 스테이지 표기. 아직 첫 라운드를 시작하지 않았으면 null 이다.
+     *
+     * [round] 가 유일한 원본이고 이것은 그것을 나눠 읽는 계산이다. 따로 들고 있지 않는다.
+     */
+    val stageRound: StageRound? get() = if (round >= 1) StageRound.ofFlat(round) else null
+
+    /** 화면에 쓰는 라운드 표기. 아직 시작 전이면 "-" 다. */
+    val roundLabel: String get() = stageRound?.label ?: "-"
+
+    /**
+     * 증강을 고르기 전에는 다음 라운드로 넘어가면 안 되는 상태인지. 명세서 7장이 증강 화면을
+     * **모달**로 지정한 것을 엔진 쪽에서 표현한 값이다.
+     *
+     * 화면이 이 값을 무시하고 [nextRound] 를 불러도 제시된 후보는 사라지지 않는다. 대신 다음
+     * 증강 라운드의 후보를 새로 뽑지 않으므로 증강을 한 번 덜 받게 된다. 후보를 덮어써
+     * 조용히 잃는 것보다는 낫지만, 화면이 이 값을 지키는 것이 전제다.
+     */
+    val awaitingAugmentChoice: Boolean get() = pendingAugments != null
+
+    /**
+     * 이번 리롤이 공짜인지. 9단계 증강 재고정리.
+     *
+     * 비용이 0 인지로 판단하지 않는다. 11단계가 기본 리롤 비용을 0 으로 낮추면 무료 리롤 횟수가
+     * 무한이 되어 버린다. 무료인지와 얼마인지는 별개의 질문이다.
+     */
+    val rerollIsFree: Boolean
+        get() = freeRerollsUsed < AugmentRules.freeRerollsPerRound(player.augments)
+
+    /** 지금 리롤에 드는 골드. 화면은 [EconomyRules.REROLL_COST] 가 아니라 이 값을 보여준다. */
+    val rerollCost: Int get() = if (rerollIsFree) 0 else EconomyRules.REROLL_COST
 
     /**
      * 다음 라운드를 시작한다. 수입과 자동 경험치를 지급하고 상점을 새로 채운다.
@@ -109,21 +164,63 @@ class PlanningSession(
      */
     fun nextRound(): PlayerState {
         round++
+        freeRerollsUsed = 0
         player = Economy.startRound(player)
         offer = roller.roll(level = player.level, previous = offer)
+        offerAugmentsIfDue()
         return player
+    }
+
+    /**
+     * 증강 라운드면 후보 3개를 제시한다. 명세서 4-8: 2-1, 3-2, 4-2.
+     *
+     * **수입을 준 뒤에 부른다.** 황금손길을 2-1 에 골라도 첫 2골드는 2-2 시작에 들어오는데,
+     * 그것이 곧 "2-1 종료분" 이라 명세서의 "매 라운드 종료 시" 와 맞는다. 자세한 규정은
+     * [Economy.roundIncome] 참고.
+     *
+     * 아직 답하지 않은 후보가 있으면 새로 뽑지 않는다. 덮어쓰면 이전 후보가 조용히 사라진다.
+     */
+    private fun offerAugmentsIfDue() {
+        if (pendingAugments != null) return
+        val current = stageRound ?: return
+        if (!current.isAugmentRound) return
+        pendingAugments = augmentRoller.roll(player)
+    }
+
+    /**
+     * 제시된 후보 중 하나를 고른다. 로드맵 9단계 완료 기준의 "적용" 절반이다.
+     *
+     * 고르는 순간 한 번만 일어나는 것(보유 목록, 체력 대가, 아이템 지급)은
+     * [AugmentRules.applyOnPick] 이, 경험치는 [Economy.grantExp] 가 맡는다. 매 라운드 읽히는
+     * 효과(골드·무료 리롤·시너지 임계값·전투 버프)는 상태에 새기지 않는다. 보유 목록에서
+     * 그때그때 읽으므로 같은 값이 두 곳에 생겨 어긋날 일이 없다.
+     */
+    fun chooseAugment(augmentId: String): PlanningResult {
+        val candidates = pendingAugments ?: return PlanningResult.Failure(PlanningError.NO_AUGMENT_OFFER)
+        val chosen = candidates.firstOrNull { it.id == augmentId }
+            ?: return PlanningResult.Failure(PlanningError.AUGMENT_NOT_OFFERED)
+
+        val picked = AugmentRules.applyOnPick(player, chosen, augmentRoller.random)
+        player = Economy.grantExp(picked, AugmentRules.expGrantedBy(chosen))
+        pendingAugments = null
+        return PlanningResult.Success()
     }
 
     /**
      * 상점을 새로고침한다. 명세서 4-1: 2골드.
      *
      * 이미 구매한 칸의 유닛은 벤치에 있으므로 풀로 돌아가지 않는다.
+     *
+     * 9단계 증강 재고정리를 들고 있으면 라운드마다 [rerollIsFree] 인 동안은 골드를 쓰지 않는다.
      */
     fun reroll(): PlanningResult {
-        if (player.gold < EconomyRules.REROLL_COST) return PlanningResult.Failure(PlanningError.NOT_ENOUGH_GOLD)
-        player = player.copy(gold = player.gold - EconomyRules.REROLL_COST)
+        val free = rerollIsFree
+        val cost = if (free) 0 else EconomyRules.REROLL_COST
+        if (player.gold < cost) return PlanningResult.Failure(PlanningError.NOT_ENOUGH_GOLD)
+
+        if (free) freeRerollsUsed++ else player = player.copy(gold = player.gold - cost)
         offer = roller.roll(level = player.level, previous = offer)
-        return PlanningResult.Success(goldSpent = EconomyRules.REROLL_COST)
+        return PlanningResult.Success(goldSpent = cost)
     }
 
     /**

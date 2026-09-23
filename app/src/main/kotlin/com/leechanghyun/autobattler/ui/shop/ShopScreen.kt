@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.leechanghyun.autobattler.core.board.DropTarget
 import com.leechanghyun.autobattler.core.board.HexBoard
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.ui.augment.AugmentSelectOverlay
 import com.leechanghyun.autobattler.ui.board.PlayfieldView
 import com.leechanghyun.autobattler.ui.theme.AutoBattlerTheme
 import com.leechanghyun.autobattler.ui.theme.costColor
@@ -59,6 +60,7 @@ fun ShopRoute(viewModel: ShopViewModel = hiltViewModel()) {
         onReroll = viewModel::reroll,
         onBuyExp = viewModel::buyExp,
         onNextRound = viewModel::nextRound,
+        onChooseAugment = viewModel::chooseAugment,
         onMessageShown = viewModel::consumeMessage,
     )
 }
@@ -78,6 +80,7 @@ fun ShopScreen(
     onReroll: () -> Unit,
     onBuyExp: () -> Unit,
     onNextRound: () -> Unit,
+    onChooseAugment: (String) -> Unit,
     onMessageShown: () -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -133,6 +136,9 @@ fun ShopScreen(
                 }
             }
         }
+
+        // 증강 모달. 명세서 7장 3번 화면. 후보가 없으면 아무것도 그리지 않는다.
+        AugmentSelectOverlay(candidates = state.pendingAugments, onChoose = onChooseAugment)
     }
 }
 
@@ -206,7 +212,7 @@ private fun PlayerHeader(state: ShopUiState) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("${state.round}라운드", style = MaterialTheme.typography.titleMedium)
+                Text("${state.roundLabel} 라운드", style = MaterialTheme.typography.titleMedium)
                 Text("체력 ${state.hp}", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "${state.gold}골드",
@@ -236,6 +242,15 @@ private fun PlayerHeader(state: ShopUiState) {
                 "남은 유닛 풀 ${state.poolRemaining}장",
                 style = MaterialTheme.typography.bodySmall,
             )
+            // 증강 효과는 대부분 전투에서 드러나는데 전투 화면은 10단계다. 고른 증강이 화면
+            // 어디에도 남지 않으면 "적용됐는지" 를 사람이 확인할 길이 없어 한 줄로 보여준다.
+            if (state.augments.isNotEmpty()) {
+                Text(
+                    "증강 " + state.augments.joinToString(" · ") { it.name },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
         }
     }
 }
@@ -249,12 +264,13 @@ private fun ActionBar(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = onReroll, enabled = state.canReroll) {
-            Text("새로고침 ${EconomyRules.REROLL_COST}골드")
+            // 비용은 상수가 아니다. 증강 재고정리가 라운드마다 한 번을 공짜로 만든다.
+            Text(if (state.rerollCost == 0) "새로고침 무료" else "새로고침 ${state.rerollCost}골드")
         }
         OutlinedButton(onClick = onBuyExp, enabled = state.canBuyExp) {
             Text("경험치 ${EconomyRules.BUY_EXP_COST}골드")
         }
-        Button(onClick = onNextRound) { Text("다음 라운드") }
+        Button(onClick = onNextRound, enabled = !state.awaitingAugmentChoice) { Text("다음 라운드") }
     }
 }
 
@@ -366,7 +382,7 @@ private fun ShopScreenPreview() {
         ShopScreen(
             state = ShopUiState(
                 isLoading = false,
-                round = 3,
+                roundLabel = "1-3",
                 gold = 14,
                 hp = 92,
                 level = 5,
@@ -395,6 +411,7 @@ private fun ShopScreenPreview() {
                     SynergyUi("폭풍의 부족", 1, 0, null, 2, null),
                     SynergyUi("수호자", 2, 1, 2, 4, "수호자 유닛 최대 체력 증가"),
                 ),
+                augments = listOf(AugmentUi("aug_iron_will", "강철의의지", "아군 전체 방어력 +10")),
             ),
             onBuy = {},
             onDrop = { _, _ -> },
@@ -403,6 +420,7 @@ private fun ShopScreenPreview() {
             onReroll = {},
             onBuyExp = {},
             onNextRound = {},
+            onChooseAugment = {},
             onMessageShown = {},
         )
     }

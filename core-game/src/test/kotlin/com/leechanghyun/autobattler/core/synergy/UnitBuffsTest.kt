@@ -45,13 +45,14 @@ class UnitBuffsTest {
             chainChargePerAttack = 21,
             chainDamage = 22,
             chainTargets = 23,
-            startingManaFlat = 24,
+            critChargePerAttack = 24,
+            startingManaFlat = 25,
         )
 
         val fields = UnitBuffs::class.java.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }
         assertEquals(
             "UnitBuffs 에 항목을 더했으면 위 all 에도 0 이 아닌 값을 넣어라",
-            14,
+            15,
             fields.size,
         )
         fields.forEach { field ->

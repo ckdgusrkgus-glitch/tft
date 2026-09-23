@@ -1,5 +1,6 @@
 package com.leechanghyun.autobattler.core.ai
 
+import com.leechanghyun.autobattler.core.augment.AugmentRoller
 import com.leechanghyun.autobattler.core.economy.ShopOffer
 import com.leechanghyun.autobattler.core.economy.ShopRoller
 import com.leechanghyun.autobattler.core.economy.UnitPool
@@ -44,6 +45,13 @@ internal class LobbyFixture(
     val pool = UnitPool()
     private val roller = ShopRoller(pool, Random(seed))
 
+    /**
+     * 증강 난수는 상점 난수와 **다른 인스턴스**다. 하나로 합치면 증강 라운드마다 상점 스트림이
+     * 밀려 8단계 측정값이 통째로 움직인다. 씨앗을 준 이유는 재현성이 아니라 감시다. 기본값
+     * `Random.Default` 로 두면 [snapshot] 이 실행마다 달라져 결정성 테스트가 빨개진다.
+     */
+    private val augmentRoller = AugmentRoller(random = Random(seed))
+
     val seats: List<Seat> = buyPolicies.mapIndexed { index, policy ->
         Seat(
             session = PlanningSession(
@@ -55,6 +63,7 @@ internal class LobbyFixture(
                     isBot = policy != null,
                     gold = startingGold,
                 ),
+                augmentRoller = augmentRoller,
             ),
             brain = policy?.let { BotBrain(it) },
         )
@@ -111,7 +120,8 @@ internal class LobbyFixture(
         val bench = player.bench.sortedBy { it.instanceId }
             .joinToString(",") { "${it.instanceId}:${it.unitDef.id}:${it.starLevel}" }
         "${player.playerId} gold=${player.gold} lv=${player.level} exp=${player.exp} " +
-            "bag=${player.itemInventory.map { it.id }} board=[$board] bench=[$bench]"
+            "bag=${player.itemInventory.map { it.id }} aug=${seat.session.pendingAugments?.map { it.id }} " +
+            "board=[$board] bench=[$bench]"
     }
 }
 

@@ -144,6 +144,10 @@ class CombatUnit(
     var chainCharge: Int = 0
         private set
 
+    /** 치명타 충전량. 9단계 증강 사수의감각. 연쇄 번개와 같은 방식이다. */
+    var critCharge: Int = 0
+        private set
+
     val isAlive: Boolean get() = hp > 0
 
     /** 마나가 가득 차 스킬을 쓸 수 있는 상태인지. */
@@ -201,6 +205,20 @@ class CombatUnit(
         chainCharge += buffs.chainChargePerAttack
         if (chainCharge < CombatRules.CHAIN_CHARGE_FULL) return false
         chainCharge -= CombatRules.CHAIN_CHARGE_FULL
+        return true
+    }
+
+    /**
+     * 기본 공격 1회분을 충전하고, 가득 찼으면 상한만큼 빼고 true 를 돌려준다. [chargeChain] 과 같다.
+     *
+     * **[chargeChain] 보다 먼저 불러야 한다.** 치명타는 그 공격의 피해량을 정하고 연쇄 번개는
+     * 그 공격이 끝난 뒤에 터지는 별개 판정이라, 순서가 바뀌면 치명타가 한 박자 늦게 적용된다.
+     */
+    internal fun chargeCrit(): Boolean {
+        if (buffs.critChargePerAttack <= 0) return false
+        critCharge += buffs.critChargePerAttack
+        if (critCharge < CombatRules.CRIT_CHARGE_FULL) return false
+        critCharge -= CombatRules.CRIT_CHARGE_FULL
         return true
     }
 

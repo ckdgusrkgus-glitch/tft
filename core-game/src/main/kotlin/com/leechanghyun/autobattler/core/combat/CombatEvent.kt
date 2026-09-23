@@ -26,6 +26,8 @@ sealed interface CombatEvent {
         val damage: Int,
         /** 쉴드가 먹은 양. 10단계 애니메이션의 쉴드 연출이 쓴다. */
         val absorbed: Int = 0,
+        /** 치명타였는지. 9단계 증강 사수의감각. 10단계 애니메이션의 치명타 연출이 쓴다. */
+        val crit: Boolean = false,
     ) : CombatEvent
 
     data class SkillCast(

@@ -109,12 +109,15 @@ class CombatSimulator(private val field: HexGrid = CombatField.grid) {
         units: List<CombatUnit>,
         events: MutableList<CombatEvent>,
     ) {
-        val dealt = target.takeDamage(attacker.attackDamage)
+        // 치명타는 이 공격의 피해량을 정하므로 방어력 감산 전, 곧 takeDamage 전에 판정한다.
+        val crit = attacker.chargeCrit()
+        val amount = if (crit) CombatRules.critDamage(attacker.attackDamage) else attacker.attackDamage
+        val dealt = target.takeDamage(amount)
         attacker.attackCooldown = attacker.attackIntervalTicks
         attacker.gainMana(CombatRules.MANA_PER_ATTACK)
         target.gainMana(CombatRules.MANA_PER_HIT_TAKEN)
 
-        events += CombatEvent.Attacked(tick, attacker.id, target.id, dealt.hpLost, dealt.absorbed)
+        events += CombatEvent.Attacked(tick, attacker.id, target.id, dealt.hpLost, dealt.absorbed, crit)
         if (!target.isAlive) events += CombatEvent.Died(tick, target.id)
 
         chainLightning(tick, attacker, target, units, events)

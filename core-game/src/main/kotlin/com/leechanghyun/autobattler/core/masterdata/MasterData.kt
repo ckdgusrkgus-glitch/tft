@@ -5,6 +5,7 @@ import com.leechanghyun.autobattler.core.model.ItemDef
 import com.leechanghyun.autobattler.core.model.MonsterDef
 import com.leechanghyun.autobattler.core.model.Origin
 import com.leechanghyun.autobattler.core.model.SkillDef
+import com.leechanghyun.autobattler.core.model.StageRound
 import com.leechanghyun.autobattler.core.model.TraitDef
 import com.leechanghyun.autobattler.core.model.UnitClass
 import com.leechanghyun.autobattler.core.model.UnitDef
@@ -83,5 +84,11 @@ object MasterData {
                 }
             }
         }
+
+        // 증강(4-8)과 크립(4-9)의 라운드 표기가 실제로 가리킬 수 있는 라운드인지 본다.
+        // StageRound.of 가 스테이지 내 번호 범위를 강제하므로, ROUNDS_PER_STAGE 를 줄이면
+        // 여기서 앱이 뜨기 전에 터진다.
+        AUGMENT_STAGE_ROUNDS.forEach { require(it.flat >= 1) { "증강 라운드 $it 가 범위 밖이다" } }
+        monsters.forEach { StageRound.of(it.stage, MonsterDef.MONSTER_ROUND_IN_STAGE) }
     }
 }

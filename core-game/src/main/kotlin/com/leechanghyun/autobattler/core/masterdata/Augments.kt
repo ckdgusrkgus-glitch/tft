@@ -1,6 +1,7 @@
 package com.leechanghyun.autobattler.core.masterdata
 
 import com.leechanghyun.autobattler.core.model.AugmentDef
+import com.leechanghyun.autobattler.core.model.StageRound
 
 /**
  * 증강 10종. 명세서 4-8 표 그대로.
@@ -30,3 +31,14 @@ val AUGMENT_ROUNDS: List<Pair<Int, Int>> = listOf(2 to 1, 3 to 2, 4 to 2)
 
 /** 증강 선택 시 제시되는 후보 개수. 명세서 4-8: 3개 중 1개. */
 const val AUGMENT_CHOICES_PER_ROUND = 3
+
+/**
+ * [AUGMENT_ROUNDS] 를 라운드 번호로 옮긴 것. 평면 번호로는 5, 10, 14 라운드다.
+ *
+ * 스테이지 표기 그대로 비교하면 두 값을 짝지어 맞춰야 해서 한쪽만 보는 실수가 난다.
+ */
+val AUGMENT_STAGE_ROUNDS: List<StageRound> =
+    AUGMENT_ROUNDS.map { (stage, roundInStage) -> StageRound.of(stage, roundInStage) }
+
+/** 이 라운드가 증강 선택 라운드인지. 명세서 4-8: 2-1, 3-2, 4-2. */
+val StageRound.isAugmentRound: Boolean get() = this in AUGMENT_STAGE_ROUNDS

@@ -50,6 +50,15 @@ data class UnitBuffs(
     /** 연쇄 번개가 튀는 대상 수. 주 대상은 제외한다. */
     val chainTargets: Int = 0,
     /**
+     * 기본 공격 1회당 쌓이는 치명타 충전량. 9단계 증강 사수의감각.
+     *
+     * 명세서 4-8 은 "치명타 확률 +20%" 라고 적지만 4단계 전투는 난수를 한 줄도 쓰지 않는다.
+     * 그래서 폭풍의 부족 연쇄 번개와 똑같이 정수 충전으로 옮긴다. 상한이
+     * [com.leechanghyun.autobattler.core.combat.CombatRules.CRIT_CHARGE_FULL] = 100 이므로
+     * 충전량 20 은 정확히 다섯 번에 한 번, 곧 공격의 20% 다.
+     */
+    val critChargePerAttack: Int = 0,
+    /**
      * 전투 시작 마나 가산. 7단계 마나의흔장 계열.
      *
      * 스킬 최대 마나를 넘겨 시작할 수는 없다. 상한 적용은
@@ -76,12 +85,15 @@ data class UnitBuffs(
         chainChargePerAttack = chainChargePerAttack + other.chainChargePerAttack,
         chainDamage = chainDamage + other.chainDamage,
         chainTargets = chainTargets + other.chainTargets,
+        critChargePerAttack = critChargePerAttack + other.critChargePerAttack,
         startingManaFlat = startingManaFlat + other.startingManaFlat,
     )
 
     val hasShield: Boolean get() = shieldPeriodTicks > 0 && shieldPercentOfMaxHp > 0f
 
     val hasChain: Boolean get() = chainChargePerAttack > 0 && chainTargets > 0 && chainDamage > 0
+
+    val hasCrit: Boolean get() = critChargePerAttack > 0
 
     companion object {
         val NONE = UnitBuffs()

@@ -2,6 +2,7 @@ package com.leechanghyun.autobattler.ui.shop
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.leechanghyun.autobattler.core.augment.AugmentRoller
 import com.leechanghyun.autobattler.core.board.DropTarget
 import com.leechanghyun.autobattler.core.economy.Economy
 import com.leechanghyun.autobattler.core.economy.ShopRoller
@@ -10,6 +11,7 @@ import com.leechanghyun.autobattler.core.planning.PlanningError
 import com.leechanghyun.autobattler.core.planning.PlanningResult
 import com.leechanghyun.autobattler.core.planning.PlanningSession
 import com.leechanghyun.autobattler.core.masterdata.EconomyRules
+import com.leechanghyun.autobattler.core.model.AugmentDef
 import com.leechanghyun.autobattler.core.model.HexCoord
 import com.leechanghyun.autobattler.core.model.PlayerState
 import com.leechanghyun.autobattler.data.repository.GameDataRepository
@@ -62,6 +64,17 @@ data class SynergyUi(
     val effect: String?,
 )
 
+/**
+ * 증강 1개의 표시용 데이터. 로드맵 9단계, 명세서 4-8.
+ *
+ * 효과 해석은 전부 `core-game` 의 증강 규칙이 이미 했다. 이 화면은 이름과 설명만 그린다.
+ */
+data class AugmentUi(
+    val id: String,
+    val name: String,
+    val description: String,
+)
+
 /** 벤치 1칸의 표시용 데이터. */
 data class BenchUnitUi(
     val instanceId: String,
@@ -79,10 +92,13 @@ data class BenchUnitUi(
  *
  * @param expToNext 다음 레벨까지 남은 경험치. 최대 레벨이면 null.
  * @param message 조작 실패를 알리는 한 줄 메시지. 표시한 뒤 [ShopViewModel.consumeMessage] 로 지운다.
+ * @param roundLabel "2-1" 같은 스테이지 표기. 시작 전에는 "-" 다. 화면이 라운드를 세지 않는다.
+ * @param pendingAugments 지금 골라야 하는 증강 후보. 비어 있지 않으면 모달을 띄운다.
+ * @param rerollCost 지금 리롤에 드는 골드. 증강 재고정리가 0 으로 만들 수 있어 상수를 쓰지 않는다.
  */
 data class ShopUiState(
     val isLoading: Boolean = true,
-    val round: Int = 0,
+    val roundLabel: String = "-",
     val gold: Int = 0,
     val hp: Int = PlayerState.STARTING_HP,
     val level: Int = 1,
@@ -98,9 +114,19 @@ data class ShopUiState(
     /** 탭으로 고른 유닛. 판매 버튼이 이 유닛을 대상으로 한다. */
     val selectedId: String? = null,
     val poolRemaining: Int = 0,
+    /** 지금까지 고른 증강. 로드맵 9단계. */
+    val augments: List<AugmentUi> = emptyList(),
+    val pendingAugments: List<AugmentUi> = emptyList(),
+    val rerollCost: Int = EconomyRules.REROLL_COST,
     val message: String? = null,
 ) {
-    val canReroll: Boolean get() = gold >= EconomyRules.REROLL_COST
+    /**
+     * 증강을 고르기 전에는 다음 라운드로 넘어갈 수 없다. 명세서 7장이 증강 화면을 **모달**로
+     * 지정했기 때문이다. 판단은 `core-game` 이 하고 화면은 그 값을 그대로 쓴다.
+     */
+    val awaitingAugmentChoice: Boolean get() = pendingAugments.isNotEmpty()
+
+    val canReroll: Boolean get() = gold >= rerollCost
     val canBuyExp: Boolean get() = gold >= EconomyRules.BUY_EXP_COST && level < PlayerState.MAX_LEVEL
     val benchIsFull: Boolean get() = bench.size >= benchCapacity
 
@@ -159,6 +185,9 @@ class ShopViewModel @Inject constructor(
                     displayName = "나",
                     isBot = false,
                 ),
+                // Room 에서 읽은 증강 목록을 쓴다. 마스터 데이터 상수를 직접 보면 DB 시딩이
+                // 어긋나도 화면만 멀쩡해 보인다. 여기서 한 번만 만들어 매 라운드 재조회를 피한다.
+                augmentRoller = AugmentRoller(catalog = repository.augments()),
             )
             session.nextRound()
             _uiState.update { it.copy(isLoading = false) }
@@ -183,6 +212,9 @@ class ShopViewModel @Inject constructor(
     }
 
     fun reroll() = runAction { session.reroll() }
+
+    /** 제시된 증강 하나를 고른다. 로드맵 9단계 완료 기준. */
+    fun chooseAugment(augmentId: String) = runAction { session.chooseAugment(augmentId) }
 
     fun buyExp() = runAction { session.buyExp() }
 
@@ -213,7 +245,7 @@ class ShopViewModel @Inject constructor(
         val player = session.player
         _uiState.update { state ->
             state.copy(
-                round = session.round,
+                roundLabel = session.roundLabel,
                 gold = player.gold,
                 hp = player.hp,
                 level = player.level,
@@ -225,6 +257,9 @@ class ShopViewModel @Inject constructor(
                 boardCapacity = player.boardCapacity,
                 synergies = buildSynergies(),
                 poolRemaining = pool.totalRemaining(),
+                augments = player.augments.map { it.toUi() },
+                pendingAugments = session.pendingAugments.orEmpty().map { it.toUi() },
+                rerollCost = session.rerollCost,
                 selectedId = state.selectedId?.takeIf { id ->
                     (player.bench + player.board).any { it.instanceId == id }
                 },
@@ -254,6 +289,8 @@ class ShopViewModel @Inject constructor(
             )
         }
     }
+
+    private fun AugmentDef.toUi() = AugmentUi(id = id, name = name, description = description)
 
     private fun buildBench(): List<BenchUnitUi> = session.player.bench.map { unit ->
         BenchUnitUi(
@@ -308,5 +345,7 @@ class ShopViewModel @Inject constructor(
         PlanningError.ITEM_SLOTS_FULL -> "아이템 칸이 가득 찼습니다"
         PlanningError.ITEM_NOT_COMBINABLE -> "조합할 수 없는 아이템입니다"
         PlanningError.SAME_ITEM_SLOT -> "서로 다른 아이템 두 개를 골라야 합니다"
+        PlanningError.NO_AUGMENT_OFFER -> "지금은 증강을 고르는 라운드가 아닙니다"
+        PlanningError.AUGMENT_NOT_OFFERED -> "이번에 제시된 증강이 아닙니다"
     }
 }
